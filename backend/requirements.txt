@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+websockets
+opencv-python
+mediapipe
+deepface
+vosk
+pyaudio
+google-generativeai
+transformers
+torch
+librosa
+pandas

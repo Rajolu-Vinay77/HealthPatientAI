@@ -22,9 +22,19 @@ from deepface import DeepFace
 import google.generativeai as genai
 from transformers import pipeline
 
+# --- REPLACEMENT: HSEmotion for Fast/Accurate Face Analysis ---
+try:
+    from hsemotion.facial_emotions import HSEmotionRecognizer
+    HSEmotion_AVAILABLE = True
+except ImportError:
+    print("[WARN] HSEmotion not found. Using DeepFace fallback.")
+    HSEmotion_AVAILABLE = False
+
+import librosa
+
 # ---------------- CONFIGURATION ----------------
 
-GEMINI_API_KEY = "AIzaSyCrLslzmvtWo969f7-ERdoLCXZ-dw61mS8"
+GEMINI_API_KEY = "AIzaSyCrLslzmvtWo969f7-ERdoLCXZ-dw61mS8" 
 
 gemini_model = None
 if GEMINI_API_KEY:
@@ -42,6 +52,15 @@ try:
 except:
     vocal_pipeline = None
     print("[WARN] Transformers library missing. Vocal analysis disabled.")
+
+# Load the Fast Emotion Model
+fer = None
+if HSEmotion_AVAILABLE:
+    try:
+        fer = HSEmotionRecognizer(model_name='enet_b0_8_best_vgaf', device='cpu')
+        print("[INFO] HSEmotion Model Loaded (Fast Mode)")
+    except Exception as e:
+        print(f"[ERROR] HSEmotion Failed: {e}")
 
 # ---------------- CONSTANTS ----------------
 LOOK_THRESHOLD_X = 0.22
@@ -69,7 +88,7 @@ class SharedState:
         }
         self.text_alert_expires = 0.0
         
-        # Frame buffer for Emotion Thread
+        # Frame buffer
         self.latest_frame = None 
         self.new_frame_available = False
 
@@ -91,22 +110,35 @@ class SharedState:
 
     def set_text_alert(self, duration=4.0):
         with self.lock:
-            # Set expiration time in the future
             self.text_alert_expires = time.time() + duration
 
     def get_snapshot(self):
         with self.lock:
-            # 1. Check Expiration
+            # 1. Expiration Check
             if time.time() > self.text_alert_expires:
                 if self.data["clinical_flag"] not in ["None", "N/A"]:
                     self.data["clinical_flag"] = "None"
             
-            # 2. Alert Logic
-            is_angry_face = str(self.data["face_emotion"]).lower() == "angry"
-            is_angry_voice = str(self.data["vocal_emotion"]).lower() == "angry"
-            is_risky_text = time.time() < self.text_alert_expires
+            # 2. Multimodal Inference Logic (The "Fusion" Brain)
+            face = str(self.data["face_emotion"]).lower()
+            voice = str(self.data["vocal_emotion"]).lower()
+            gaze = self.data["gaze_status"]
             
-            self.data["alert_active"] = (is_angry_face or is_angry_voice or is_risky_text)
+            is_distressed = False
+            
+            # Logic A: Anxiety (Fear + Avoidance)
+            if face == "fear" and gaze == "Looking Away":
+                is_distressed = True
+                # Ideally we'd update a specific flag, but for now we trigger the main alert
+            
+            # Logic B: Anger/Aggression (Angry Face + Angry Voice)
+            if face == "angry" or voice == "angry":
+                is_distressed = True
+
+            # Logic C: Text Trigger
+            is_text_risk = time.time() < self.text_alert_expires
+            
+            self.data["alert_active"] = (is_distressed or is_text_risk)
             return self.data.copy()
 
 state_manager = SharedState()
@@ -122,19 +154,6 @@ app.add_middleware(
 )
 
 # ---------------- HELPER FUNCTIONS ----------------
-
-# 1. FAST KEYWORD CHECK (Zero Latency)
-def check_safety_keywords(text):
-    """Checks for keywords locally to trigger instant alerts before Gemini responds."""
-    keywords = [
-        "angry", "hate", "kill", "die", "suicide", "hurt", "pain", 
-        "stupid", "idiot", "shut up", "hit", "punch", "blood"
-    ]
-    text_lower = text.lower()
-    for word in keywords:
-        if word in text_lower:
-            return True
-    return False
 
 def landmarks_to_np(landmarks, img_w, img_h):
     return np.array([(lm.x * img_w, lm.y * img_h) for lm in landmarks], dtype=np.float32)
@@ -199,20 +218,23 @@ class TemporalSmoother:
         if self.current_label is not None and label != self.current_label and prob >= self.spike_threshold:
             self.current_label = label
             self.labels.clear(); self.probs.clear()
-        
         self.labels.append(label)
         self.probs.append(float(prob))
         if self.ema_prob is None: self.ema_prob = float(prob)
         else: self.ema_prob = (1.0 - self.ema_alpha) * self.ema_prob + self.ema_alpha * float(prob)
-
         majority_label = Counter(self.labels).most_common(1)[0][0] if self.labels else None
         stable_enough = len(self.labels) >= self.min_dwell and all(l == majority_label for l in list(self.labels)[-self.min_dwell:])
-        
         if self.current_label is None: self.current_label = majority_label
         else:
             if (majority_label != self.current_label and stable_enough):
                 self.current_label = majority_label
         return self.current_label, self.ema_prob
+    
+    def reset(self):
+        self.labels.clear()
+        self.probs.clear()
+        self.ema_prob = None
+        self.current_label = None
 
 # ---------------- BACKGROUND ANALYSIS THREADS ----------------
 
@@ -227,7 +249,21 @@ clinical_schema = {
 
 def analyze_text_clinically(text):
     if not gemini_model or not text: return "N/A", "N/A"
-    prompt = f"""User said: "{text}". Analyze sentiment. If words imply aggression, anger, defiance, or distress, flag it. Output strict JSON: sentiment, clinical_flag."""
+    
+    # --- CLINICAL PROMPT (Updated with your ODD/MDD/Anxiety definitions) ---
+    prompt = f"""
+    Analyze this patient statement: "{text}".
+    
+    Detect clinical markers based on these definitions:
+    1. **Anxiety/Distress**: Expressions of worry ("I'm worried"), feeling overwhelmed, rapid onset ("It's not the same"), or loss ("I miss...").
+    2. **ODD/Anger**: Externalizing blame ("It's their fault"), annoyance ("They annoy me"), defiance, arguing with authority.
+    3. **Depression/Apathy**: Hopelessness ("Better off without me"), isolation, flat/short responses ("Whatever", "Fine").
+    
+    Output strict JSON:
+    - sentiment: POSITIVE, NEGATIVE, NEUTRAL, or SARCASTIC.
+    - clinical_flag: The specific category identified (e.g., "Anxiety Indicator", "Distress", "ODD/Anger", "Depression/Apathy") or "None".
+    """
+    
     try:
         gen_config = genai.GenerationConfig(response_mime_type="application/json", response_schema=clinical_schema)
         response = gemini_model.generate_content(prompt, generation_config=gen_config)
@@ -239,7 +275,16 @@ def map_vocal_label(label):
     mapping = {"neu":"Neutral","hap":"Happy","ang":"Angry","sad":"Sad","exc":"Excited","fea":"Fear","sur":"Surprise"}
     return mapping.get(label, label)
 
-# --- OPTIMIZED AUDIO THREAD ---
+def check_safety_keywords(text):
+    # Expanded list based on your docs (ODD/Depression markers)
+    keywords = [
+        "angry", "hate", "kill", "die", "suicide", "hurt", "pain", 
+        "stupid", "idiot", "shut up", "hit", "punch", "blood",
+        "fault", "annoy", "fair", "whatever", "fine", "worried", "scared"
+    ]
+    return any(w in text.lower() for w in keywords)
+
+# --- AUDIO THREAD ---
 def audio_processing_thread():
     print("[THREAD] Audio Listener Started")
     try:
@@ -262,17 +307,14 @@ def audio_processing_thread():
                 if text:
                     print(f"[FINAL] {text}")
                     
-                    # 1. INSTANT LOCAL CHECK (0 Latency)
-                    # If matched, trigger alert BEFORE calling Gemini
+                    # 1. Immediate Keyword Check
                     if check_safety_keywords(text):
-                        print("!!! KEYWORD TRIGGER !!!")
-                        state_manager.update("clinical_flag", "Keyword Alert")
+                        state_manager.update("clinical_flag", "Potential Risk Marker")
                         state_manager.set_text_alert(4.0)
                     
-                    state_manager.update("text", text) # Show text on UI immediately
-
-                    # 2. Heavy Analysis (Gemini)
-                    # This happens async, UI will update when it finishes
+                    state_manager.update("text", text)
+                    
+                    # 2. Gemini Analysis (Async)
                     sent, flag = analyze_text_clinically(text)
                     
                     # 3. Vocal Analysis
@@ -282,50 +324,54 @@ def audio_processing_thread():
                         res = vocal_pipeline(audio_float, sampling_rate=16000)
                         if res: vocal_emo = map_vocal_label(res[0]['label'])
                     
-                    # Update State with Final Analysis
                     state_manager.update("sentiment", sent)
+                    state_manager.update("clinical_flag", flag)
                     state_manager.update("vocal_emotion", vocal_emo)
                     
-                    # Only overwrite flag if Gemini found something deeper
-                    if flag not in ["None", "N/A"]:
-                        state_manager.update("clinical_flag", flag)
+                    if flag not in ["None", "N/A"] or sent == "NEGATIVE":
                         state_manager.set_text_alert(4.0)
-
+                    
                     audio_buffer = bytearray()
         except: time.sleep(0.1)
 
-# 2. Visual Emotion Logic (Decoupled from Video Stream)
+# --- EMOTION THREAD ---
 def emotion_analysis_thread():
-    """Runs DeepFace in background so video doesn't lag"""
     print("[THREAD] Background Emotion Analyzer Started")
     emotion_smoother = TemporalSmoother()
     
     while True:
         frame = state_manager.get_frame_for_analysis()
+        
         if frame is not None:
             try:
-                # Resize for speed
-                small_frame = cv2.resize(frame, (224, 224))
-                objs = DeepFace.analyze(small_frame, actions=['emotion'], enforce_detection=False, detector_backend='skip', silent=True)
-                if objs:
-                    res = objs[0]
-                    raw_emo = res['dominant_emotion']
-                    raw_conf = res['emotion'][raw_emo] / 100.0
-                    
-                    face_emo, face_conf = emotion_smoother.update(raw_emo, raw_conf)
-                    state_manager.update("face_emotion", face_emo)
-                    state_manager.update("face_conf", round(face_conf, 2))
-            except Exception as e:
-                pass
+                if fer:
+                    # HSEmotion
+                    emo, scores = fer.predict_emotions(frame, logits=False)
+                    face_emo = emo if emo else "N/A"
+                    face_conf = np.max(scores) if scores is not None else 0.0
+                else:
+                    # DeepFace
+                    small_frame = cv2.resize(frame, (224, 224))
+                    objs = DeepFace.analyze(small_frame, actions=['emotion'], enforce_detection=False, detector_backend='skip', silent=True)
+                    face_emo = objs[0]['dominant_emotion']
+                    face_conf = objs[0]['emotion'][face_emo] / 100.0
+
+                final_emo, final_conf = emotion_smoother.update(face_emo, face_conf)
+                state_manager.update("face_emotion", final_emo)
+                state_manager.update("face_conf", round(final_conf, 2))
+
+            except Exception: pass
         else:
+            # NO FACE DETECTED -> FORCE RESET
+            emotion_smoother.reset()
+            state_manager.update("face_emotion", "No Face")
+            state_manager.update("face_conf", 0.0)
             time.sleep(0.1)
 
 @app.on_event("startup")
 async def startup_event():
-    t1 = threading.Thread(target=audio_processing_thread, daemon=True)
-    t1.start()
-    t2 = threading.Thread(target=emotion_analysis_thread, daemon=True)
-    t2.start()
+    threading.Thread(target=audio_processing_thread, daemon=True).start()
+    threading.Thread(target=emotion_analysis_thread, daemon=True).start()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -337,7 +383,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(0.1)
     except WebSocketDisconnect: pass
 
-# ---------------- VIDEO LOGIC ----------------
+# --- VIDEO LOGIC ---
 def generate_frames():
     cap = cv2.VideoCapture(0)
     mp_face_mesh = mp.solutions.face_mesh
@@ -352,9 +398,6 @@ def generate_frames():
         ret, frame = cap.read()
         if not ret: break
         
-        # Send frame to background thread
-        state_manager.set_frame_for_analysis(frame)
-
         h, w = frame.shape[:2]
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
@@ -364,7 +407,20 @@ def generate_frames():
         if results.multi_face_landmarks:
             lm = results.multi_face_landmarks[0].landmark
             
-            # 1. Gaze Logic
+            # Crop Logic
+            pts = landmarks_to_np(lm, w, h)
+            x_min, y_min = np.min(pts, axis=0).astype(int)
+            x_max, y_max = np.max(pts, axis=0).astype(int)
+            x_min, y_min = max(0, x_min-20), max(0, y_min-20)
+            x_max, y_max = min(w, x_max+20), min(h, y_max+20)
+            
+            if x_max > x_min and y_max > y_min:
+                face_crop = frame[y_min:y_max, x_min:x_max].copy()
+                state_manager.set_frame_for_analysis(face_crop)
+            else:
+                 state_manager.set_frame_for_analysis(None)
+
+            # Gaze Logic
             eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
             iris_idxs = [list(range(468, 473)), list(range(473, 478))]
             
@@ -381,7 +437,6 @@ def generate_frames():
                     arr = np.array(calib_buffer)
                     calib_offset = (arr[:,0].mean(), arr[:,1].mean())
                     calibrated = True
-                    print(f"[CALIB] Auto-calibrated: {calib_offset}")
             
             final_gx = avg_g[0] - calib_offset[0]
             final_gy = avg_g[1] - calib_offset[1]
@@ -392,7 +447,7 @@ def generate_frames():
             if ear < EAR_THRESHOLD:
                 status_text = "Eyes Closed"
             elif abs(yaw) > HEAD_YAW_THRESHOLD:
-                status_text = "Looking Away"
+                status_text = "Looking Away" 
             elif abs(final_gx) < LOOK_THRESHOLD_X and abs(final_gy) < LOOK_THRESHOLD_Y:
                 status_text = "Looking at Screen"
             else:
@@ -401,17 +456,16 @@ def generate_frames():
             state_manager.update("gaze_status", status_text)
             state_manager.update("blink_state", "Closed" if ear < EAR_THRESHOLD else "Open")
 
-            # Visualization (Pupils Only)
             if l_iris_center is not None:
                 cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
             if r_iris_center is not None:
                 cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
+        else:
+             state_manager.set_frame_for_analysis(None)
+             state_manager.update("gaze_status", "No Face")
 
-        # Overlay
         snap = state_manager.get_snapshot()
-        cv2.rectangle(frame, (10, 10), (300, 90), (0, 0, 0), -1)
-        cv2.putText(frame, f"Gaze: {status_text}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(frame, f"Face: {snap['face_emotion']}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(frame, f"Gaze: {status_text}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         ret, buffer = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')

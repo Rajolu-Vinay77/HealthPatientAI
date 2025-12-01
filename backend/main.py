@@ -24,7 +24,8 @@ from transformers import pipeline
 
 # ---------------- CONFIGURATION ----------------
 
-GEMINI_API_KEY = "AIzaSyCrLslzmvtWo969f7-ERdoLCXZ-dw61mS8" 
+# UPDATE: Hardcoded key (Be careful with this in production!)
+GEMINI_API_KEY = "AIzaSyCrLslzmvtWo969f7-ERdoLCXZ-dw61mS8"
 
 gemini_model = None
 if GEMINI_API_KEY:
@@ -161,8 +162,11 @@ def estimate_head_pose(landmarks, img_w, img_h):
         return float(yaw), float(pitch), float(roll)
     except: return 0.0, 0.0, 0.0
 
+# --- UPDATED: FASTER SMOOTHER ---
 class TemporalSmoother:
-    def __init__(self, window=6, ema_alpha=0.35, min_dwell=3, conf_margin=0.05, spike_threshold=0.60):
+    # Changed window from 6 -> 3 for Speed
+    # Changed min_dwell from 3 -> 1 for Instant Reaction
+    def __init__(self, window=3, ema_alpha=0.5, min_dwell=1, spike_threshold=0.60):
         self.window = window
         self.labels = deque(maxlen=window)
         self.probs = deque(maxlen=window)
@@ -170,19 +174,25 @@ class TemporalSmoother:
         self.ema_prob = None
         self.current_label = None
         self.min_dwell = min_dwell
-        self.conf_margin = conf_margin
         self.spike_threshold = spike_threshold
 
     def update(self, label, prob):
+        # Instant switch if probability is very high (e.g. clearly happy)
         if self.current_label is not None and label != self.current_label and prob >= self.spike_threshold:
             self.current_label = label
-            self.labels.clear(); self.probs.clear()
+            self.labels.clear() 
+            self.probs.clear()
+        
         self.labels.append(label)
         self.probs.append(float(prob))
         if self.ema_prob is None: self.ema_prob = float(prob)
         else: self.ema_prob = (1.0 - self.ema_alpha) * self.ema_prob + self.ema_alpha * float(prob)
+
         majority_label = Counter(self.labels).most_common(1)[0][0] if self.labels else None
+        
+        # Check stability (less strict now)
         stable_enough = len(self.labels) >= self.min_dwell and all(l == majority_label for l in list(self.labels)[-self.min_dwell:])
+        
         if self.current_label is None: self.current_label = majority_label
         else:
             if (majority_label != self.current_label and stable_enough):
@@ -264,17 +274,32 @@ def audio_processing_thread():
                     audio_buffer = bytearray()
         except: time.sleep(0.1)
 
-# --- EMOTION THREAD (FIXED) ---
+# --- EMOTION THREAD (FIXED RGB CONVERSION) ---
 def emotion_analysis_thread():
     print("[THREAD] Background Emotion Analyzer Started")
-    emotion_smoother = TemporalSmoother()
+    # Window=3, Min_dwell=1 for fast reaction
+    emotion_smoother = TemporalSmoother(window=3, min_dwell=1)
     
     while True:
         frame = state_manager.get_frame_for_analysis()
         if frame is not None:
             try:
+                # 1. Resize for speed
                 small_frame = cv2.resize(frame, (224, 224))
-                objs = DeepFace.analyze(small_frame, actions=['emotion'], enforce_detection=False, detector_backend='skip', silent=True)
+                
+                # 2. CRITICAL FIX: Convert BGR to RGB
+                # DeepFace expects RGB. Without this, Blue and Red are swapped!
+                rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+                
+                # 3. Analyze the RGB frame
+                objs = DeepFace.analyze(
+                    rgb_frame, 
+                    actions=['emotion'], 
+                    enforce_detection=False, 
+                    detector_backend='skip', 
+                    silent=True
+                )
+                
                 if objs:
                     res = objs[0]
                     raw_emo = res['dominant_emotion']
@@ -285,9 +310,6 @@ def emotion_analysis_thread():
                     state_manager.update("face_conf", round(final_conf, 2))
             except Exception: pass
         else:
-            # FIX: Do NOTHING here. Just wait.
-            # Letting this thread reset to "No Face" caused the flicker.
-            # "No Face" is now exclusively handled by generate_frames().
             time.sleep(0.1)
 
 @app.on_event("startup")

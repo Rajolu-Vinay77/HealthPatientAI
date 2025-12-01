@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  AlertTriangle, Heart, Mic, Video, Activity, 
-  Eye, EyeOff, User, MessageSquare, Move, Monitor
+  AlertTriangle, Mic, Video, Activity, 
+  Eye, EyeOff, User, MessageSquare, Monitor, Move
 } from 'lucide-react';
 import './App.css';
 
 function App() {
+  // 1. State Management matches Backend 'SharedState' structure
   const [data, setData] = useState({
     status: "Connecting...",
     face_emotion: "Neutral",
@@ -19,40 +20,46 @@ function App() {
     alert_active: false
   });
 
-  // Chat History State
   const [history, setHistory] = useState([]);
   const ws = useRef(null);
   const chatEndRef = useRef(null);
 
-  // --- WEBSOCKET CONNECTION ---
+  // 2. WebSocket Connection Logic
   useEffect(() => {
     ws.current = new WebSocket("ws://localhost:8000/ws");
     
     ws.current.onmessage = (event) => {
-      const parsed = JSON.parse(event.data);
-      setData(parsed);
+      try {
+        const parsed = JSON.parse(event.data);
+        setData(parsed);
 
-      // Append to history only if text is new and not empty
-      if (parsed.text && (history.length === 0 || history[history.length-1].text !== parsed.text)) {
-         const newEntry = {
-           text: parsed.text,
-           sentiment: parsed.sentiment,
-           flag: parsed.clinical_flag,
-           time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})
-         };
-         setHistory(prev => [...prev.slice(-50), newEntry]); // Keep last 50 msgs
+        // 3. Chat History Logic: Only add distinctive, final text segments
+        // We check if the text is different from the last entry to avoid duplicates
+        if (parsed.text && (history.length === 0 || history[history.length-1].text !== parsed.text)) {
+           const newEntry = {
+             text: parsed.text,
+             sentiment: parsed.sentiment,
+             flag: parsed.clinical_flag,
+             time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})
+           };
+           // Keep history manageable (last 50 entries)
+           setHistory(prev => [...prev.slice(-50), newEntry]); 
+        }
+      } catch (e) {
+        console.error("Websocket Parse Error:", e);
       }
     };
 
+    ws.current.onclose = () => console.log("WebSocket Disconnected");
     return () => ws.current?.close();
-  }, [history]);
+  }, [history]); // Dependency on history ensures distinct check works correctly
 
-  // Auto-scroll chat
+  // 4. Auto-scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
 
-  // Helper: Get Color based on Emotion
+  // 5. Helper for Dynamic UI Colors
   const getEmoColor = (emo) => {
     const map = { 
       'angry': '#ef4444', 'sad': '#3b82f6', 'happy': '#22c55e', 
@@ -64,7 +71,7 @@ function App() {
   return (
     <div className={`app-container ${data.alert_active ? 'alert-mode' : ''}`}>
       
-      {/* --- LEFT SIDEBAR --- */}
+      {/* --- LEFT SIDEBAR (METRICS) --- */}
       <aside className="sidebar">
         <div className="brand">
           <Activity className="brand-icon" />
@@ -76,7 +83,7 @@ function App() {
 
         <div className="metrics-wrapper">
           
-          {/* 1. FACE CARD */}
+          {/* Metric 1: Facial Affect */}
           <div className="metric-tile" style={{borderColor: getEmoColor(data.face_emotion)}}>
             <div className="tile-header">
               <User size={18} /> <span>Facial Affect</span>
@@ -89,7 +96,7 @@ function App() {
             </div>
           </div>
 
-          {/* 2. VOICE CARD */}
+          {/* Metric 2: Vocal Tone */}
           <div className="metric-tile">
             <div className="tile-header">
               <Mic size={18} /> <span>Vocal Tone</span>
@@ -99,7 +106,7 @@ function App() {
             </div>
           </div>
 
-          {/* 3. GAZE CARD */}
+          {/* Metric 3: Attention / Gaze */}
           <div className={`metric-tile ${data.gaze_status === "Looking Away" ? 'warn-tile' : ''}`}>
             <div className="tile-header">
               {data.gaze_status === "Looking at Screen" ? <Monitor size={18}/> : <Move size={18}/>}
@@ -110,7 +117,7 @@ function App() {
             </div>
           </div>
 
-          {/* 4. CLINICAL ALERT */}
+          {/* Metric 4: Clinical Risk Flag */}
           <div className={`metric-tile flag-tile ${data.clinical_flag !== "None" ? 'active' : ''}`}>
             <div className="tile-header">
               <AlertTriangle size={18} /> <span>Clinical Risk</span>
@@ -123,19 +130,21 @@ function App() {
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT --- */}
+      {/* --- MAIN CONTENT AREA --- */}
       <main className="main-view">
         
-        {/* VIDEO FEED */}
+        {/* Video Stream Section */}
         <div className="video-section">
           <div className="video-frame">
+            {/* The Source is your Python Backend URL */}
             <img src="http://localhost:8000/video_feed" alt="Patient Stream" className="stream-img" />
             
-            {/* HUD OVERLAY (The "High Tech" Look) */}
+            {/* Heads-Up Display (HUD) Overlay */}
             <div className="hud-layer">
               <div className="hud-corners"></div>
               <div className="hud-status">
                 <div className="hud-tag">
+                  {/* Blink Indicator */}
                   {data.blink_state === "Closed" ? <EyeOff size={14} color="#f87171"/> : <Eye size={14} color="#4ade80"/>} 
                   {data.blink_state}
                 </div>
@@ -144,7 +153,7 @@ function App() {
                 </div>
               </div>
               
-              {/* CRITICAL ALERT BANNER */}
+              {/* Critical Alert Pop-up */}
               {data.alert_active && (
                  <div className="video-alert-banner">
                    <AlertTriangle size={24} /> RISK DETECTED
@@ -154,7 +163,7 @@ function App() {
           </div>
         </div>
 
-        {/* TRANSCRIPT LOG */}
+        {/* Live Transcript Section */}
         <div className="transcript-section">
           <div className="section-title">
             <MessageSquare size={16} /> Live Transcript
@@ -172,7 +181,7 @@ function App() {
                </div>
              ))}
              
-             {/* Live Typing Preview */}
+             {/* Real-time typing preview from partial results */}
              {data.text && (
                <div className="msg-row preview">
                  <span className="time">Now</span>

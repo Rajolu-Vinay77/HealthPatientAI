@@ -340,6 +340,12 @@ async def websocket_endpoint(websocket: WebSocket):
 # ---------------- VIDEO LOGIC ----------------
 def generate_frames():
     cap = cv2.VideoCapture(0)
+    
+    # Check if camera opened successfully
+    if not cap.isOpened():
+        print("[ERROR] Could not open video device.")
+        return
+
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5)
     
@@ -348,75 +354,87 @@ def generate_frames():
     calib_buffer = []
     calibrated = False
 
-    while True:
-        ret, frame = cap.read()
-        if not ret: break
-        
-        # Send frame to background thread
-        state_manager.set_frame_for_analysis(frame)
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret: break
+            
+            h, w = frame.shape[:2]
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb)
+            
+            status_text = "No Face"
+            
+            # --- LOGIC FIX START ---
+            if results.multi_face_landmarks:
+                # 1. Face Found: Send frame to DeepFace for analysis
+                state_manager.set_frame_for_analysis(frame)
 
-        h, w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb)
-        
-        status_text = "No Face"
-        
-        if results.multi_face_landmarks:
-            lm = results.multi_face_landmarks[0].landmark
+                lm = results.multi_face_landmarks[0].landmark
+                
+                # ... (Keep all your existing Gaze/Iris logic here) ...
+                eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
+                iris_idxs = [list(range(468, 473)), list(range(473, 478))]
+                
+                lx, ly, l_iris_center = eye_iris_center(lm, eye_idxs[0], iris_idxs[0], w, h)
+                rx, ry, r_iris_center = eye_iris_center(lm, eye_idxs[1], iris_idxs[1], w, h)
+                gx, gy = (lx+rx)/2, (ly+ry)/2
+                
+                gaze_history.append((gx, gy))
+                avg_g = np.mean(gaze_history, axis=0)
+                
+                if not calibrated:
+                    calib_buffer.append(avg_g)
+                    if len(calib_buffer) > 30:
+                        arr = np.array(calib_buffer)
+                        calib_offset = (arr[:,0].mean(), arr[:,1].mean())
+                        calibrated = True
+                        print(f"[CALIB] Auto-calibrated: {calib_offset}")
+                
+                final_gx = avg_g[0] - calib_offset[0]
+                final_gy = avg_g[1] - calib_offset[1]
+                
+                ear = (get_ear(lm, eye_idxs[0], w, h) + get_ear(lm, eye_idxs[1], w, h)) / 2
+                yaw, pitch, _ = estimate_head_pose(lm, w, h)
+                
+                if ear < EAR_THRESHOLD:
+                    status_text = "Eyes Closed"
+                elif abs(yaw) > HEAD_YAW_THRESHOLD:
+                    status_text = "Looking Away"
+                elif abs(final_gx) < LOOK_THRESHOLD_X and abs(final_gy) < LOOK_THRESHOLD_Y:
+                    status_text = "Looking at Screen"
+                else:
+                    status_text = "Looking Away"
+                
+                state_manager.update("gaze_status", status_text)
+                state_manager.update("blink_state", "Closed" if ear < EAR_THRESHOLD else "Open")
+
+                # Visualization (Pupils)
+                if l_iris_center is not None:
+                    cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
+                if r_iris_center is not None:
+                    cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
             
-            # 1. Gaze Logic
-            eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
-            iris_idxs = [list(range(468, 473)), list(range(473, 478))]
-            
-            lx, ly, l_iris_center = eye_iris_center(lm, eye_idxs[0], iris_idxs[0], w, h)
-            rx, ry, r_iris_center = eye_iris_center(lm, eye_idxs[1], iris_idxs[1], w, h)
-            gx, gy = (lx+rx)/2, (ly+ry)/2
-            
-            gaze_history.append((gx, gy))
-            avg_g = np.mean(gaze_history, axis=0)
-            
-            if not calibrated:
-                calib_buffer.append(avg_g)
-                if len(calib_buffer) > 30:
-                    arr = np.array(calib_buffer)
-                    calib_offset = (arr[:,0].mean(), arr[:,1].mean())
-                    calibrated = True
-                    print(f"[CALIB] Auto-calibrated: {calib_offset}")
-            
-            final_gx = avg_g[0] - calib_offset[0]
-            final_gy = avg_g[1] - calib_offset[1]
-            
-            ear = (get_ear(lm, eye_idxs[0], w, h) + get_ear(lm, eye_idxs[1], w, h)) / 2
-            yaw, pitch, _ = estimate_head_pose(lm, w, h)
-            
-            if ear < EAR_THRESHOLD:
-                status_text = "Eyes Closed"
-            elif abs(yaw) > HEAD_YAW_THRESHOLD:
-                status_text = "Looking Away"
-            elif abs(final_gx) < LOOK_THRESHOLD_X and abs(final_gy) < LOOK_THRESHOLD_Y:
-                status_text = "Looking at Screen"
             else:
-                status_text = "Looking Away"
-            
-            state_manager.update("gaze_status", status_text)
-            state_manager.update("blink_state", "Closed" if ear < EAR_THRESHOLD else "Open")
+                # 2. No Face Found: Force updates to "No Face"
+                # We DO NOT send the frame to DeepFace here, effectively pausing it.
+                state_manager.update("gaze_status", "No Face")
+                state_manager.update("face_emotion", "No Face")
+                state_manager.update("face_conf", 0.0)
+                state_manager.update("blink_state", "N/A")
+            # --- LOGIC FIX END ---
 
-            # Visualization (Pupils Only)
-            if l_iris_center is not None:
-                cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
-            if r_iris_center is not None:
-                cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
+            # Overlay
+            snap = state_manager.get_snapshot()
+            cv2.rectangle(frame, (10, 10), (300, 90), (0, 0, 0), -1)
+            cv2.putText(frame, f"Gaze: {snap['gaze_status']}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(frame, f"Face: {snap['face_emotion']}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-        # Overlay
-        snap = state_manager.get_snapshot()
-        cv2.rectangle(frame, (10, 10), (300, 90), (0, 0, 0), -1)
-        cv2.putText(frame, f"Gaze: {status_text}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(frame, f"Face: {snap['face_emotion']}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-        ret, buffer = cv2.imencode('.jpg', frame)
-        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        
-    cap.release()
+            ret, buffer = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+    
+    finally:
+        cap.release()
 
 @app.get("/video_feed")
 def video_feed():

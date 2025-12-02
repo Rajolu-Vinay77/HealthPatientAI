@@ -218,7 +218,21 @@ clinical_schema = {
 
 def analyze_text_clinically(text):
     if not gemini_model or not text: return "N/A", "N/A"
-    prompt = f"""User said: "{text}". Analyze sentiment. If words imply aggression, anger, defiance, or distress, flag it. Output strict JSON: sentiment, clinical_flag."""
+    
+    # --- CLINICAL PROMPT (Updated with ODD/MDD/Anxiety definitions) ---
+    prompt = f"""
+    Analyze this patient statement: "{text}".
+    
+    Detect clinical markers based on these definitions:
+    1. **ODD (Oppositional Defiant Disorder)**: Easily annoyed, externalizes blame ("it's their fault"), argues with authority, defiant of rules.
+    2. **Adjustment Disorder**: Recent worsening due to stressor, rapid onset, "it's not the same", "I miss my...".
+    3. **Major Depressive Disorder**: Flat affect, short responses, hopelessness, "better off without me", isolation.
+    
+    Output strict JSON:
+    - sentiment: POSITIVE, NEGATIVE, NEUTRAL, or SARCASTIC.
+    - clinical_flag: The specific category identified (e.g., "ODD Indicator", "Depression Risk", "Adjustment Stress") or "None".
+    """
+    
     try:
         gen_config = genai.GenerationConfig(response_mime_type="application/json", response_schema=clinical_schema)
         response = gemini_model.generate_content(prompt, generation_config=gen_config)
@@ -231,8 +245,22 @@ def map_vocal_label(label):
     return mapping.get(label, label)
 
 def check_safety_keywords(text):
-    keywords = ["angry", "hate", "kill", "die", "suicide", "hurt", "pain", "stupid", "idiot"]
-    return any(w in text.lower() for w in keywords)
+    # Expanded list based on your MBH Template docs
+    keywords = [
+        # Original Safety Keywords
+        "kill", "die", "suicide", "hurt", "pain", "blood",
+        
+        # ODD Markers 
+        "fault", "annoy", "fair", "stupid", "hate", "blame",
+        
+        # Depression/Adjustment Markers 
+        "worried", "scared", "miss", "sad", "hopeless", "hurt myself"
+    ]
+    text_lower = text.lower()
+    for word in keywords:
+        if word in text_lower:
+            return True
+    return False
 
 def audio_processing_thread():
     print("[THREAD] Audio Listener Started")

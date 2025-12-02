@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   AlertTriangle, Mic, Video, Activity, 
-  Eye, EyeOff, User, MessageSquare, Monitor, Move
+  Eye, EyeOff, User, MessageSquare, Monitor, Move,
+  Play, Square, FileText, Download, X
 } from 'lucide-react';
 import './App.css';
 
+// Configuration
+const API_URL = "http://localhost:8000";
+const API_KEY = "dev-secret"; // Must match backend .env
+
 function App() {
-  // 1. State Management matches Backend 'SharedState' structure
   const [data, setData] = useState({
     status: "Connecting...",
     face_emotion: "Neutral",
@@ -21,10 +25,16 @@ function App() {
   });
 
   const [history, setHistory] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('report'); // 'report' or 'transcript'
+
   const ws = useRef(null);
   const chatEndRef = useRef(null);
 
-  // 2. WebSocket Connection Logic
+  // --- WEBSOCKET CONNECTION ---
   useEffect(() => {
     ws.current = new WebSocket("ws://localhost:8000/ws");
     
@@ -33,8 +43,7 @@ function App() {
         const parsed = JSON.parse(event.data);
         setData(parsed);
 
-        // 3. Chat History Logic: Only add distinctive, final text segments
-        // We check if the text is different from the last entry to avoid duplicates
+        // Append distinctive text to history
         if (parsed.text && (history.length === 0 || history[history.length-1].text !== parsed.text)) {
            const newEntry = {
              text: parsed.text,
@@ -42,7 +51,6 @@ function App() {
              flag: parsed.clinical_flag,
              time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})
            };
-           // Keep history manageable (last 50 entries)
            setHistory(prev => [...prev.slice(-50), newEntry]); 
         }
       } catch (e) {
@@ -50,16 +58,58 @@ function App() {
       }
     };
 
-    ws.current.onclose = () => console.log("WebSocket Disconnected");
     return () => ws.current?.close();
-  }, [history]); // Dependency on history ensures distinct check works correctly
+  }, [history]);
 
-  // 4. Auto-scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history]);
 
-  // 5. Helper for Dynamic UI Colors
+  // --- SESSION CONTROLS ---
+
+  const startSession = async () => {
+    try {
+      await fetch(`${API_URL}/start_session`, {
+        method: "POST",
+        headers: { "x-api-key": API_KEY }
+      });
+      setIsRecording(true);
+      setHistory([]); // Clear local chat
+      setReportData(null);
+    } catch (err) {
+      alert("Failed to start session: " + err.message);
+    }
+  };
+
+  const stopSession = async () => {
+    setIsRecording(false);
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/stop_session`, {
+        method: "POST",
+        headers: { "x-api-key": API_KEY }
+      });
+      const json = await res.json();
+      setReportData(json);
+      setShowReport(true);
+    } catch (err) {
+      alert("Failed to generate report: " + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const downloadCSV = () => {
+    if (!reportData?.csv) return;
+    const blob = new Blob([reportData.csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session_log_${new Date().toISOString()}.csv`;
+    a.click();
+  };
+
+  // --- UI HELPERS ---
   const getEmoColor = (emo) => {
     const map = { 
       'angry': '#ef4444', 'sad': '#3b82f6', 'happy': '#22c55e', 
@@ -71,7 +121,7 @@ function App() {
   return (
     <div className={`app-container ${data.alert_active ? 'alert-mode' : ''}`}>
       
-      {/* --- LEFT SIDEBAR (METRICS) --- */}
+      {/* --- LEFT SIDEBAR --- */}
       <aside className="sidebar">
         <div className="brand">
           <Activity className="brand-icon" />
@@ -81,79 +131,66 @@ function App() {
           </div>
         </div>
 
+        {/* CONTROLS */}
+        <div className="controls-wrapper">
+          {!isRecording ? (
+            <button className="btn btn-start" onClick={startSession}>
+              <Play size={16} /> Start Session
+            </button>
+          ) : (
+            <button className="btn btn-stop" onClick={stopSession}>
+              <Square size={16} /> End & Generate Report
+            </button>
+          )}
+        </div>
+
         <div className="metrics-wrapper">
-          
-          {/* Metric 1: Facial Affect */}
           <div className="metric-tile" style={{borderColor: getEmoColor(data.face_emotion)}}>
-            <div className="tile-header">
-              <User size={18} /> <span>Facial Affect</span>
-            </div>
-            <div className="tile-value" style={{color: getEmoColor(data.face_emotion)}}>
-              {data.face_emotion}
-            </div>
+            <div className="tile-header"><User size={18} /> <span>Facial Affect</span></div>
+            <div className="tile-value" style={{color: getEmoColor(data.face_emotion)}}>{data.face_emotion}</div>
             <div className="confidence-bar">
               <div className="fill" style={{width: `${data.face_conf * 100}%`, background: getEmoColor(data.face_emotion)}}></div>
             </div>
           </div>
 
-          {/* Metric 2: Vocal Tone */}
           <div className="metric-tile">
-            <div className="tile-header">
-              <Mic size={18} /> <span>Vocal Tone</span>
-            </div>
-            <div className="tile-value text-purple">
-              {data.vocal_emotion}
-            </div>
+            <div className="tile-header"><Mic size={18} /> <span>Vocal Tone</span></div>
+            <div className="tile-value text-purple">{data.vocal_emotion}</div>
           </div>
 
-          {/* Metric 3: Attention / Gaze */}
           <div className={`metric-tile ${data.gaze_status === "Looking Away" ? 'warn-tile' : ''}`}>
             <div className="tile-header">
               {data.gaze_status === "Looking at Screen" ? <Monitor size={18}/> : <Move size={18}/>}
               <span>Attention</span>
             </div>
-            <div className="tile-value">
-              {data.gaze_status}
-            </div>
+            <div className="tile-value">{data.gaze_status}</div>
           </div>
 
-          {/* Metric 4: Clinical Risk Flag */}
           <div className={`metric-tile flag-tile ${data.clinical_flag !== "None" ? 'active' : ''}`}>
-            <div className="tile-header">
-              <AlertTriangle size={18} /> <span>Clinical Risk</span>
-            </div>
-            <div className="tile-value">
-              {data.clinical_flag}
-            </div>
+            <div className="tile-header"><AlertTriangle size={18} /> <span>Clinical Risk</span></div>
+            <div className="tile-value">{data.clinical_flag}</div>
           </div>
-
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT AREA --- */}
+      {/* --- MAIN CONTENT --- */}
       <main className="main-view">
-        
-        {/* Video Stream Section */}
         <div className="video-section">
           <div className="video-frame">
-            {/* The Source is your Python Backend URL */}
-            <img src="http://localhost:8000/video_feed" alt="Patient Stream" className="stream-img" />
+            <img src={`${API_URL}/video_feed`} alt="Patient Stream" className="stream-img" />
             
-            {/* Heads-Up Display (HUD) Overlay */}
             <div className="hud-layer">
-              <div className="hud-corners"></div>
               <div className="hud-status">
                 <div className="hud-tag">
-                  {/* Blink Indicator */}
                   {data.blink_state === "Closed" ? <EyeOff size={14} color="#f87171"/> : <Eye size={14} color="#4ade80"/>} 
                   {data.blink_state}
                 </div>
                 <div className="hud-tag">
                   <Video size={14} color="#4ade80"/> Live 30fps
                 </div>
+                {isRecording && <div className="hud-tag rec-tag">● REC</div>}
               </div>
               
-              {/* Critical Alert Pop-up */}
               {data.alert_active && (
                  <div className="video-alert-banner">
                    <AlertTriangle size={24} /> RISK DETECTED
@@ -163,14 +200,11 @@ function App() {
           </div>
         </div>
 
-        {/* Live Transcript Section */}
         <div className="transcript-section">
           <div className="section-title">
             <MessageSquare size={16} /> Live Transcript
           </div>
           <div className="chat-feed">
-             {history.length === 0 && <div className="empty-msg">Waiting for speech...</div>}
-             
              {history.map((msg, i) => (
                <div key={i} className={`msg-row ${msg.sentiment}`}>
                  <span className="time">{msg.time}</span>
@@ -180,21 +214,61 @@ function App() {
                  </div>
                </div>
              ))}
-             
-             {/* Real-time typing preview from partial results */}
              {data.text && (
                <div className="msg-row preview">
                  <span className="time">Now</span>
-                 <div className="msg-bubble typing">
-                   {data.text}<span className="cursor">|</span>
-                 </div>
+                 <div className="msg-bubble typing">{data.text}<span className="cursor">|</span></div>
                </div>
              )}
              <div ref={chatEndRef} />
           </div>
         </div>
-
       </main>
+
+      {/* --- REPORT MODAL --- */}
+      {showReport && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h2>Session Analysis Report</h2>
+              <button className="close-btn" onClick={() => setShowReport(false)}><X size={20}/></button>
+            </div>
+            
+            <div className="modal-tabs">
+              <button className={`tab-btn ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
+                <Activity size={16} /> AI Summary
+              </button>
+              <button className={`tab-btn ${activeTab === 'transcript' ? 'active' : ''}`} onClick={() => setActiveTab('transcript')}>
+                <FileText size={16} /> Annotated Transcript
+              </button>
+              <button className="tab-btn download-btn" onClick={downloadCSV}>
+                <Download size={16} /> Download CSV
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {activeTab === 'report' ? (
+                <div className="report-text">
+                  <pre>{reportData?.report_content}</pre>
+                </div>
+              ) : (
+                <div className="transcript-text">
+                  <pre>{reportData?.transcript_tagged}</pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- LOADING OVERLAY --- */}
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="spinner"></div>
+          <p>Generating Behavioral Report...</p>
+        </div>
+      )}
+
     </div>
   );
 }

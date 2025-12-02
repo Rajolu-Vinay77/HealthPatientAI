@@ -1,0 +1,22 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,Notes
+0.29,Patient,the moon,sad,Silence,Neutral,0.75,None
+1.29,Patient,—,sad,Silence,Neutral,0.72,None
+2.29,Patient,—,sad,Silence,Disengaged/Avoidant,0.6,None
+3.29,Patient,—,fear,Silence,Disengaged/Avoidant,0.88,None
+4.29,Patient,—,sad,Silence,Neutral,0.74,None
+5.29,Patient,—,sad,Silence,Neutral,0.72,None
+6.29,Patient,—,fear,Silence,Neutral,0.8,None
+7.29,Patient,—,fear,Silence,Neutral,0.63,None
+8.29,Patient,—,sad,Silence,Neutral,0.68,None
+9.29,Patient,—,sad,Silence,Neutral,0.91,None
+10.29,Patient,mean i can i'm gonna pull up for a patio the mind,happy,Silence,Positive,0.88,None
+11.29,Patient,—,neutral,Silence,Neutral,0.75,None
+12.29,Patient,—,sad,Silence,Neutral,0.65,None
+13.29,Patient,—,happy,Silence,Positive,0.89,None
+14.29,Patient,the,happy,Silence,Positive,0.62,None
+15.29,Patient,—,neutral,Silence,Neutral,0.91,None
+16.29,Patient,—,fear,Silence,Neutral,0.85,None
+17.29,Patient,—,fear,Silence,Disengaged/Avoidant,0.91,None
+18.29,Patient,angry,neutral,Silence,Stressed/Escalated,0.94,Keyword Alert
+19.29,Patient,—,fear,Silence,Stressed/Escalated,0.77,Keyword Alert
+20.29,Patient,—,sad,Silence,Stressed/Escalated,0.64,ODD

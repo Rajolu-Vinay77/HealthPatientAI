@@ -1,0 +1,8 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,Notes
+0.58,Patient,i it,fear,Silence,Neutral,0.98,None
+1.58,Patient,—,fear,Silence,Disengaged/Avoidant,0.96,None
+2.58,Patient,—,angry,Silence,Stressed/Escalated,0.91,None
+3.58,Patient,—,fear,Silence,Disengaged/Avoidant,0.82,None
+4.58,Patient,—,angry,Silence,Stressed/Escalated,0.85,None
+5.58,Patient,—,fear,Silence,Disengaged/Avoidant,0.94,None
+6.58,Patient,—,fear,Silence,Neutral,0.98,None

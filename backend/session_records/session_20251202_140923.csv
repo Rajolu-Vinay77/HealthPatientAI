@@ -1,0 +1,64 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,Notes
+0.97,Patient,really i think there's enough for getting a for dinner,fear,Angry,Stressed/Escalated,0.99,None
+1.97,Patient,—,angry,Angry,Stressed/Escalated,0.99,None
+2.97,Patient,—,sad,Angry,Stressed/Escalated,0.92,None
+3.97,Patient,—,No Face,Angry,Stressed/Escalated,0.0,None
+4.97,Patient,—,No Face,Angry,Stressed/Escalated,0.0,None
+5.97,Patient,—,sad,Angry,Stressed/Escalated,0.95,None
+6.97,Patient,—,No Face,Angry,Stressed/Escalated,0.0,None
+7.97,Patient,—,fear,Angry,Stressed/Escalated,0.8,None
+9.01,Patient,—,sad,Angry,Stressed/Escalated,0.9,None
+10.01,Patient,you upgraded,No Face,Angry,Stressed/Escalated,0.0,None
+11.01,Patient,—,No Face,Sad,Neutral,0.0,None
+12.01,Patient,—,sad,Sad,Disengaged/Avoidant,0.98,None
+13.01,Patient,on a guinea,neutral,Happy,Neutral,0.99,None
+14.02,Patient,—,fear,Happy,Neutral,0.74,None
+15.02,Patient,—,sad,Happy,Disengaged/Avoidant,0.8,None
+16.02,Patient,i'm a one than be pretty the,neutral,Angry,Stressed/Escalated,0.7,None
+17.02,Patient,—,neutral,Angry,Stressed/Escalated,0.55,None
+18.02,Patient,—,sad,Angry,Stressed/Escalated,0.79,None
+19.02,Patient,—,sad,Angry,Stressed/Escalated,0.8,None
+20.02,Patient,—,neutral,Angry,Stressed/Escalated,0.75,None
+21.05,Patient,—,sad,Angry,Stressed/Escalated,0.78,None
+22.05,Patient,—,neutral,Angry,Stressed/Escalated,0.87,None
+23.05,Patient,—,neutral,Angry,Stressed/Escalated,0.89,None
+24.05,Patient,—,neutral,Angry,Stressed/Escalated,0.83,None
+25.05,Patient,—,sad,Angry,Stressed/Escalated,0.87,None
+26.05,Patient,in syllabus beauty of for is gonna title of the brothers and i'm amy anti the guy you gotta the the danny,sad,Angry,Stressed/Escalated,0.92,None
+27.05,Patient,—,sad,Happy,Neutral,0.95,None
+28.05,Patient,—,fear,Happy,Neutral,0.71,None
+29.05,Patient,—,fear,Happy,Neutral,0.89,None
+30.05,Patient,—,fear,Happy,Neutral,0.86,None
+31.05,Patient,—,happy,Happy,Positive,0.85,None
+32.05,Patient,—,surprise,Happy,Neutral,0.79,None
+33.06,Patient,—,neutral,Happy,Neutral,0.88,None
+34.06,Patient,—,No Face,Happy,Neutral,0.0,None
+35.06,Patient,—,neutral,Happy,Neutral,0.85,None
+36.06,Patient,—,sad,Happy,Neutral,0.95,None
+37.06,Patient,only this convert from the ready that once a year for then what to do with the only bit,sad,Sad,Neutral,0.98,None
+38.06,Patient,—,sad,Sad,Neutral,0.8,None
+39.06,Patient,—,sad,Sad,Neutral,0.81,None
+40.06,Patient,—,neutral,Sad,Neutral,0.83,None
+41.17,Patient,—,happy,Sad,Positive,0.78,None
+42.18,Patient,your statement he,happy,Sad,Positive,0.92,None
+43.18,Patient,—,happy,Sad,Positive,0.98,None
+44.18,Patient,—,happy,Sad,Positive,0.99,None
+45.18,Patient,—,angry,Sad,Stressed/Escalated,0.86,None
+46.18,Patient,—,No Face,Sad,Neutral,0.0,None
+47.18,Patient,—,sad,Sad,Disengaged/Avoidant,0.97,None
+48.18,Patient,—,happy,Sad,Positive,0.95,None
+49.18,Patient,—,fear,Sad,Neutral,0.99,None
+50.18,Patient,—,surprise,Sad,Neutral,0.92,None
+51.18,Patient,—,surprise,Sad,Neutral,0.62,None
+52.18,Patient,—,No Face,Sad,Neutral,0.0,None
+53.18,Patient,—,No Face,Sad,Neutral,0.0,None
+54.18,Patient,—,No Face,Sad,Neutral,0.0,None
+55.18,Patient,—,sad,Sad,Neutral,0.92,None
+56.18,Patient,a has a difficult translate into the wall haven't that that in is bundle up enough at is a bouncer pending a don't get a current model out failure filling up the disabled,sad,Sad,Neutral,0.97,None
+57.18,Patient,—,angry,Sad,Stressed/Escalated,0.99,None
+58.18,Patient,—,angry,Sad,Stressed/Escalated,0.94,None
+59.18,Patient,—,sad,Sad,Disengaged/Avoidant,0.97,None
+60.18,Patient,—,fear,Sad,Neutral,0.83,None
+61.18,Patient,—,angry,Sad,Stressed/Escalated,0.95,None
+62.18,Patient,atlanta,sad,Sad,Neutral,0.8,None
+63.18,Patient,—,sad,Happy,Neutral,0.8,None

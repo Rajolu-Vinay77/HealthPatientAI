@@ -1,0 +1,40 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,Notes
+0.1,Patient,—,happy,N/A,Positive,0.99,None
+1.11,Patient,—,happy,N/A,Positive,0.95,None
+2.11,Patient,—,No Face,N/A,Neutral,0.0,None
+3.11,Patient,—,sad,N/A,Disengaged/Avoidant,0.99,None
+4.11,Patient,—,sad,N/A,Disengaged/Avoidant,0.84,None
+5.11,Patient,—,sad,N/A,Disengaged/Avoidant,0.94,None
+6.11,Patient,—,sad,N/A,Disengaged/Avoidant,0.95,None
+7.11,Patient,—,sad,N/A,Disengaged/Avoidant,0.97,None
+8.11,Patient,—,No Face,N/A,Neutral,0.0,None
+9.11,Patient,—,No Face,N/A,Neutral,0.0,None
+10.11,Patient,—,No Face,N/A,Neutral,0.0,None
+11.11,Patient,—,No Face,N/A,Neutral,0.0,None
+12.11,Patient,—,No Face,N/A,Neutral,0.0,None
+13.11,Patient,—,No Face,N/A,Neutral,0.0,None
+14.11,Patient,you can,No Face,N/A,Neutral,0.0,None
+15.11,Patient,—,No Face,N/A,Neutral,0.0,None
+16.12,Patient,—,No Face,N/A,Neutral,0.0,None
+17.12,Patient,—,No Face,N/A,Neutral,0.0,None
+18.12,Patient,—,No Face,N/A,Neutral,0.0,None
+19.12,Patient,—,No Face,Sad,Neutral,0.0,None
+20.12,Patient,and,No Face,Sad,Neutral,0.0,None
+21.12,Patient,—,No Face,Sad,Neutral,0.0,None
+22.12,Patient,—,No Face,Sad,Neutral,0.0,None
+23.13,Patient,—,No Face,Sad,Neutral,0.0,None
+24.13,Patient,—,No Face,Sad,Neutral,0.0,None
+25.13,Patient,—,No Face,Sad,Neutral,0.0,None
+26.13,Patient,—,No Face,Sad,Neutral,0.0,None
+27.13,Patient,binder,sad,Sad,Disengaged/Avoidant,0.92,None
+28.13,Patient,—,sad,Sad,Neutral,0.95,None
+29.13,Patient,—,sad,Sad,Disengaged/Avoidant,0.98,None
+30.13,Patient,—,sad,Sad,Disengaged/Avoidant,0.95,None
+31.13,Patient,—,sad,Sad,Disengaged/Avoidant,0.98,None
+32.13,Patient,—,sad,Sad,Disengaged/Avoidant,0.99,None
+33.13,Patient,—,sad,Sad,Disengaged/Avoidant,1.0,None
+34.13,Patient,—,sad,Sad,Disengaged/Avoidant,0.99,None
+35.13,Patient,—,fear,Sad,Disengaged/Avoidant,0.84,None
+36.13,Patient,—,fear,Sad,Disengaged/Avoidant,0.83,None
+37.13,Patient,—,sad,Sad,Neutral,0.93,None
+38.13,Patient,—,sad,Sad,Neutral,0.92,None

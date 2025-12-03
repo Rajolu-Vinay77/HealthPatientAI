@@ -11,6 +11,7 @@ import csv
 import io
 import math
 import re
+import random
 from collections import deque, Counter
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -67,6 +68,7 @@ if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
         model_name = 'gemini-2.5-flash'
         gemini_model = genai.GenerativeModel(model_name)
+        print(f"[INFO] Gemini API initialized: {model_name}")
     except Exception as e:
         print(f"[ERROR] Gemini Config Failed: {e}")
 else:
@@ -294,30 +296,63 @@ class TemporalSmoother:
                 self.current_label = majority_label
         return self.current_label, self.ema_prob
 
-# ---------------- ANALYSIS LOGIC ----------------
+# ---------------- CLINICAL LOGIC (IN-CONTEXT) ----------------
 
-ANALYSIS_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "transcript_tagged": {"type": "STRING"},
-        "report_content": {"type": "STRING"}
-    },
-    "required": ["transcript_tagged", "report_content"]
-}
+# Load examples once at startup
+CLINICAL_EXAMPLES = []
+def load_clinical_examples(filepath="telepsych_finetuning.jsonl"):
+    """Reads the JSONL file to get 'real' DAIC-WOZ examples."""
+    examples = []
+    if not os.path.exists(filepath):
+        print(f"[WARN] Training data '{filepath}' not found. Using default logic.")
+        return []
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                data = json.loads(line)
+                # Extract text and label
+                user_text = data['messages'][0]['content'].replace('Analyze this patient statement: ', '').strip('"')
+                model_json = data['messages'][1]['content']
+                examples.append(f"Patient: \"{user_text}\"\nAnalysis: {model_json}")
+        print(f"[INFO] Loaded {len(examples)} clinical examples for In-Context Learning.")
+        return examples
+    except Exception as e:
+        print(f"[ERROR] Failed to load training data: {e}")
+        return []
+
+CLINICAL_EXAMPLES = load_clinical_examples()
 
 def analyze_text_clinically(text):
     if not gemini_model or not text: return "N/A", "N/A"
     
-    # Redact PII before sending logic (though safety checks are local, logic might expand)
     safe_text = redact_pii(text)
     
+    # Dynamic Few-Shot Selection
+    examples_context = ""
+    if CLINICAL_EXAMPLES:
+        # Pick 8 random examples to keep the prompt fresh
+        subset = random.sample(CLINICAL_EXAMPLES, k=min(8, len(CLINICAL_EXAMPLES)))
+        examples_context = "\n\n".join(subset)
+    
     prompt = f"""
-    Analyze this patient statement: "{safe_text}".
-    Detect clinical markers:
-    1. **ODD**: Easily annoyed, externalizes blame ("it's their fault"), defiant.
+    You are an expert clinical psychiatrist AI.
+    
+    ### TASK
+    Analyze the patient statement below for clinical markers of ODD, Depression, or Anxiety.
+    
+    ### CLINICAL DEFINITIONS
+    1. **ODD (Oppositional Defiant Disorder)**: Easily annoyed, externalizes blame ("it's their fault"), defiant.
     2. **Adjustment Disorder**: Stressor response, "it's not the same", "I miss my...".
-    3. **Depression**: Hopelessness, "better off without me", isolation.
-    Output JSON: sentiment, clinical_flag (category or "None").
+    3. **Depression**: Hopelessness, "better off without me", isolation, sleep/energy issues.
+    
+    ### REFERENCE EXAMPLES (Learn from these patterns)
+    {examples_context}
+    
+    ### CURRENT PATIENT STATEMENT
+    "{safe_text}"
+    
+    ### OUTPUT FORMAT
+    Strict JSON: {{"sentiment": "...", "clinical_flag": "..."}}
     """
     try:
         gen_config = genai.GenerationConfig(response_mime_type="application/json")
@@ -333,7 +368,6 @@ def map_vocal_label(label):
 def generate_local_annotations(transcript_text):
     lines = [ln.strip() for ln in transcript_text.splitlines() if ln.strip()]
     if not lines: lines = ["(No speech detected)"]
-    
     annotated_lines = []
     for ln in lines:
         note = "neutral"
@@ -345,11 +379,23 @@ def generate_local_annotations(transcript_text):
 
 def call_gemini_with_retry(prompt, attempts=3):
     if not gemini_model: return None
+    
+    # We define the schema for the Final Report here
+    final_report_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "transcript_tagged": {"type": "STRING"},
+            "report_content": {"type": "STRING"}
+        },
+        "required": ["transcript_tagged", "report_content"]
+    }
+    
     gen_config = genai.GenerationConfig(
         response_mime_type="application/json", 
-        response_schema=ANALYSIS_SCHEMA,
+        response_schema=final_report_schema,
         max_output_tokens=2000
     )
+    
     for i in range(attempts):
         try:
             return gemini_model.generate_content(prompt, generation_config=gen_config)
@@ -421,7 +467,6 @@ def emotion_analysis_thread():
     
     while not STOP_EVENT.is_set():
         if error_count >= MAX_DEEPFACE_ERRORS:
-            # Circuit breaker
             time.sleep(5) 
             continue
 
@@ -453,8 +498,6 @@ def emotion_analysis_thread():
                     final_emo, final_conf = emotion_smoother.update(raw_emo, raw_conf)
                     state_manager.update("face_emotion", final_emo)
                     state_manager.update("face_conf", round(final_conf, 2))
-                    
-                    # Reset errors on success
                     error_count = 0 
             except Exception as e:
                 error_count += 1
@@ -475,7 +518,6 @@ def recording_thread():
 @app.on_event("startup")
 async def startup_event():
     print(f"[INFO] System Startup. VOSK={VOSK_AVAILABLE}, GEMINI={'Enabled' if gemini_model else 'Disabled'}")
-    # Cleanup old logs (simple retention policy: keep last 50)
     try:
         files = sorted([os.path.join(RECORD_DIR, f) for f in os.listdir(RECORD_DIR)], key=os.path.getmtime)
         if len(files) > 50:
@@ -504,10 +546,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect: pass
 
 def safe_frame_generator(gen):
-    """Wraps video generator to prevent server crashes on camera failure."""
     try:
-        for frame in gen:
-            yield frame
+        for frame in gen: yield frame
     except Exception as e:
         print(f"[ERROR] Video Feed Error: {e}")
         return
@@ -515,8 +555,7 @@ def safe_frame_generator(gen):
 @app.get("/video_feed")
 def video_feed():
     gen = generate_frames()
-    if gen is None:
-        raise HTTPException(status_code=503, detail="Camera not available")
+    if gen is None: raise HTTPException(status_code=503, detail="Camera not available")
     return StreamingResponse(safe_frame_generator(gen), media_type="multipart/x-mixed-replace; boundary=frame")
 
 @app.get("/healthz")
@@ -537,7 +576,6 @@ def session_status():
 
 @app.post("/record_consent")
 async def record_consent(user_id: str = "anonymous", agreed: bool = True):
-    """Log participant consent before session start."""
     state_manager.consent_metadata = {
         "user_id": user_id,
         "consented": agreed,
@@ -549,7 +587,6 @@ async def record_consent(user_id: str = "anonymous", agreed: bool = True):
 async def start_session(api_key: str = Depends(require_api_key)):
     if not state_manager.consent_metadata.get("consented"):
         print("[WARN] Starting session without explicit consent log.")
-        
     with state_manager.lock:
         state_manager.is_recording = True
         state_manager.session_start_time = time.time()
@@ -569,7 +606,6 @@ async def clear_session(api_key: str = Depends(require_api_key)):
 def download_csv(api_key: str = Depends(require_api_key)):
     with state_manager.lock:
         rows = list(state_manager.history_log)
-        
     csv_output = io.StringIO()
     fieldnames = ["Timestamp","Speaker","Text","Emotion","Tone","Behavior","Confidence","Notes"]
     writer = csv.DictWriter(csv_output, fieldnames=fieldnames)
@@ -586,7 +622,6 @@ async def stop_session(api_key: str = Depends(require_api_key)):
         transcript_data = list(state_manager.full_transcript)
         sensor_summary = state_manager.data.copy()
 
-    # Generate CSV
     csv_output = io.StringIO()
     fieldnames = ["Timestamp", "Speaker", "Text", "Emotion", "Tone", "Behavior", "Confidence", "Notes"]
     dict_writer = csv.DictWriter(csv_output, fieldnames=fieldnames)
@@ -594,7 +629,6 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     dict_writer.writerows(rows)
     csv_string = csv_output.getvalue()
 
-    # Save to Disk
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{RECORD_DIR}/session_{timestamp}.csv"
     try:
@@ -604,11 +638,8 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     except Exception as e:
         print(f"[ERROR] Failed to save CSV to disk: {e}")
 
-    # Prepare Transcript (Redacted)
     transcript_lines = [f"[{e['time']}s] Patient: {e['text']}" for e in transcript_data]
     full_text_log = "\n".join(transcript_lines) or "(No speech detected)"
-    
-    # 1. PII REDACTION APPLIED
     safe_transcript = redact_pii(full_text_log)
 
     prompt = f"""
@@ -650,111 +681,71 @@ async def stop_session(api_key: str = Depends(require_api_key)):
 # --- VIDEO LOGIC (ROBUST) ---
 def generate_frames():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened(): 
-        return None
-    
-    # Warmup
+    if not cap.isOpened(): return None
     for _ in range(5): cap.read()
-    
     mp_face_mesh = mp.solutions.face_mesh
-    
-    # Use Context Manager for resource safety
     with mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5) as face_mesh:
         gaze_history = deque(maxlen=GAZE_SMOOTHING)
         calib_offset = (0.0, 0.0)
         calib_buffer = []
         calibrated = False
-        
-        # Track camera failures to avoid stopping on a single glitch
         read_failures = 0
-
         try:
             while True:
                 ret, frame = cap.read()
                 if not ret or frame is None:
                     read_failures += 1
-                    if read_failures > 10: break # Only break if camera is truly dead
+                    if read_failures > 10: break 
                     continue
-                
-                read_failures = 0 # Reset counter on success
-                
-                # --- SAFETY BLOCK START ---
-                # We wrap all processing in try/except so a math error doesn't kill the stream
+                read_failures = 0 
                 try:
                     h, w = frame.shape[:2]
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = face_mesh.process(rgb)
-                    
                     status_text = "No Face"
-                    
                     if results.multi_face_landmarks:
                         state_manager.set_frame_for_analysis(frame)
                         lm = results.multi_face_landmarks[0].landmark
-                        
-                        # Indices
                         eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
                         iris_idxs = [list(range(468, 473)), list(range(473, 478))]
-                        
-                        # Safe Calculation wrappers
                         lx, ly, l_iris_center = eye_iris_center(lm, eye_idxs[0], iris_idxs[0], w, h)
                         rx, ry, r_iris_center = eye_iris_center(lm, eye_idxs[1], iris_idxs[1], w, h)
-                        
-                        # Only proceed if eyes were actually found
                         if l_iris_center is not None and r_iris_center is not None:
                             gx, gy = (lx+rx)/2, (ly+ry)/2
                             gaze_history.append((gx, gy))
                             avg_g = np.mean(gaze_history, axis=0)
-                            
                             if not calibrated:
                                 calib_buffer.append(avg_g)
                                 if len(calib_buffer) > 30:
                                     arr = np.array(calib_buffer)
                                     calib_offset = (arr[:,0].mean(), arr[:,1].mean())
                                     calibrated = True
-                            
                             final_gx = avg_g[0] - calib_offset[0]
                             final_gy = avg_g[1] - calib_offset[1]
                             ear = (get_ear(lm, eye_idxs[0], w, h) + get_ear(lm, eye_idxs[1], w, h)) / 2
                             yaw, pitch, _ = estimate_head_pose(lm, w, h)
-                            
                             if ear < EAR_THRESHOLD: status_text = "Eyes Closed"
                             elif abs(yaw) > HEAD_YAW_THRESHOLD: status_text = "Looking Away"
                             elif abs(final_gx) < LOOK_THRESHOLD_X and abs(final_gy) < LOOK_THRESHOLD_Y: status_text = "Looking at Screen"
                             else: status_text = "Looking Away"
-                            
                             state_manager.update("gaze_status", status_text)
                             state_manager.update("blink_state", "Closed" if ear < EAR_THRESHOLD else "Open")
-
-                            # Draw Eyes
-                            if l_iris_center is not None: 
-                                cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
-                            if r_iris_center is not None: 
-                                cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
-                        else:
-                            # Eyes confusing/blocked
-                            state_manager.update("gaze_status", "Obstructed")
+                            cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
+                            cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
+                        else: state_manager.update("gaze_status", "Obstructed")
                     else:
                         state_manager.update("gaze_status", "No Face")
                         state_manager.update("face_emotion", "No Face")
                         state_manager.update("face_conf", 0.0)
                         state_manager.update("blink_state", "N/A")
-
-                except Exception as e:
-                    # If math fails (e.g. hand blocking face), print error but KEEP GOING
-                    # print(f"[WARN] Frame Processing Error: {e}") 
-                    pass
-                # --- SAFETY BLOCK END ---
-
-                # Overlay (Always draws, even if processing failed)
+                except Exception: pass
                 snap = state_manager.get_snapshot()
                 cv2.rectangle(frame, (10, 10), (300, 90), (0, 0, 0), -1)
                 cv2.putText(frame, f"Gaze: {snap['gaze_status']}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, f"Face: {snap['face_emotion']}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
                 ret, buffer = cv2.imencode('.jpg', frame)
                 yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        finally:
-            cap.release()
+        finally: cap.release()
 
 if __name__ == "__main__":
     import uvicorn

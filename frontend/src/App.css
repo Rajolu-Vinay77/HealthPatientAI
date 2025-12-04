@@ -127,6 +127,42 @@ body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color
   white-space: pre-wrap; font-family: 'Inter', sans-serif; font-size: 0.95rem; line-height: 1.6; color: #cbd5e1;
 }
 
+/* --- CHART STYLES --- */
+.chart-container {
+  margin-top: auto; /* Pushes it to bottom if using flex-grow elsewhere */
+  background: var(--card);
+  border: 1px solid #2d3748;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.chart-wrapper {
+  height: 100px;
+  width: 100%;
+}
+
+/* Tooltip Customization */
+.custom-tooltip {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid #334155;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.custom-tooltip .label { color: #fff; font-weight: bold; margin: 0; text-transform: capitalize; }
+.custom-tooltip .intro { color: #94a3b8; margin: 0; }
+
 /* --- LOADING --- */
 .loading-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 2000;

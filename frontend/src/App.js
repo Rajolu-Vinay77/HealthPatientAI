@@ -4,11 +4,14 @@ import {
   Eye, EyeOff, User, MessageSquare, Monitor, Move,
   Play, Square, FileText, Download, X
 } from 'lucide-react';
+import { 
+  LineChart, Line, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+} from 'recharts';
 import './App.css';
 
 // Configuration
 const API_URL = "http://localhost:8000";
-const API_KEY = "dev-secret"; // Must match backend .env
+const API_KEY = "dev-secret"; 
 
 function App() {
   const [data, setData] = useState({
@@ -25,25 +28,52 @@ function App() {
   });
 
   const [history, setHistory] = useState([]);
+  const [emotionLog, setEmotionLog] = useState([]); 
   const [isRecording, setIsRecording] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [reportData, setReportData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('report'); // 'report' or 'transcript'
+  const [activeTab, setActiveTab] = useState('report');
+
+  // --- NEW: FPS STATE ---
+  const [fps, setFps] = useState(0);
+  const frameCounter = useRef(0);
 
   const ws = useRef(null);
   const chatEndRef = useRef(null);
+
+  // --- FPS CALCULATION TIMER ---
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFps(frameCounter.current);
+      frameCounter.current = 0; // Reset every second
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // --- WEBSOCKET CONNECTION ---
   useEffect(() => {
     ws.current = new WebSocket("ws://localhost:8000/ws");
     
     ws.current.onmessage = (event) => {
+      // Increment FPS counter for every packet received
+      frameCounter.current += 1;
+
       try {
         const parsed = JSON.parse(event.data);
         setData(parsed);
 
-        // Append distinctive text to history
+        setEmotionLog(prev => {
+          const newPoint = {
+            time: new Date().toLocaleTimeString([], { second: '2-digit' }),
+            intensity: (parsed.face_conf * 100).toFixed(0), 
+            emotion: parsed.face_emotion
+          };
+          const updated = [...prev, newPoint];
+          if (updated.length > 30) updated.shift(); 
+          return updated;
+        });
+
         if (parsed.text && (history.length === 0 || history[history.length-1].text !== parsed.text)) {
            const newEntry = {
              text: parsed.text,
@@ -66,7 +96,6 @@ function App() {
   }, [history]);
 
   // --- SESSION CONTROLS ---
-
   const startSession = async () => {
     try {
       await fetch(`${API_URL}/start_session`, {
@@ -74,7 +103,8 @@ function App() {
         headers: { "x-api-key": API_KEY }
       });
       setIsRecording(true);
-      setHistory([]); // Clear local chat
+      setHistory([]); 
+      setEmotionLog([]); 
       setReportData(null);
     } catch (err) {
       alert("Failed to start session: " + err.message);
@@ -92,6 +122,19 @@ function App() {
       const json = await res.json();
       setReportData(json);
       setShowReport(true);
+
+      if (json.csv) {
+        const blob = new Blob([json.csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        a.download = `session_log_${timestamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
     } catch (err) {
       alert("Failed to generate report: " + err.message);
     } finally {
@@ -109,7 +152,6 @@ function App() {
     a.click();
   };
 
-  // --- UI HELPERS ---
   const getEmoColor = (emo) => {
     const map = { 
       'angry': '#ef4444', 'sad': '#3b82f6', 'happy': '#22c55e', 
@@ -118,10 +160,22 @@ function App() {
     return map[String(emo).toLowerCase()] || '#94a3b8';
   };
 
+  const CustomTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="custom-tooltip">
+          <p className="label">{`${payload[0].payload.emotion}`}</p>
+          <p className="intro">{`Intensity: ${payload[0].value}%`}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className={`app-container ${data.alert_active ? 'alert-mode' : ''}`}>
       
-      {/* --- LEFT SIDEBAR --- */}
+      {/* --- SIDEBAR --- */}
       <aside className="sidebar">
         <div className="brand">
           <Activity className="brand-icon" />
@@ -131,7 +185,6 @@ function App() {
           </div>
         </div>
 
-        {/* CONTROLS */}
         <div className="controls-wrapper">
           {!isRecording ? (
             <button className="btn btn-start" onClick={startSession}>
@@ -170,6 +223,28 @@ function App() {
             <div className="tile-header"><AlertTriangle size={18} /> <span>Clinical Risk</span></div>
             <div className="tile-value">{data.clinical_flag}</div>
           </div>
+
+          <div className="chart-container">
+            <div className="chart-header">Emotional Intensity</div>
+            <div className="chart-wrapper">
+              <ResponsiveContainer width="100%" height={100}>
+                <LineChart data={emotionLog}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                  <YAxis domain={[0, 100]} hide />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="intensity" 
+                    stroke={getEmoColor(data.face_emotion)} 
+                    strokeWidth={2} 
+                    dot={false} 
+                    isAnimationActive={false} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
         </div>
       </aside>
 
@@ -178,32 +253,29 @@ function App() {
         <div className="video-section">
           <div className="video-frame">
             <img src={`${API_URL}/video_feed`} alt="Patient Stream" className="stream-img" />
-            
             <div className="hud-layer">
               <div className="hud-status">
                 <div className="hud-tag">
+                  {/* DYNAMIC BLINK ICON & TEXT */}
                   {data.blink_state === "Closed" ? <EyeOff size={14} color="#f87171"/> : <Eye size={14} color="#4ade80"/>} 
                   {data.blink_state}
                 </div>
                 <div className="hud-tag">
-                  <Video size={14} color="#4ade80"/> Live 30fps
+                  {/* DYNAMIC REAL-TIME FPS */}
+                  <Video size={14} color={fps > 10 ? "#4ade80" : "#f87171"}/> 
+                  Live {fps} fps
                 </div>
                 {isRecording && <div className="hud-tag rec-tag">● REC</div>}
               </div>
-              
               {data.alert_active && (
-                 <div className="video-alert-banner">
-                   <AlertTriangle size={24} /> RISK DETECTED
-                 </div>
+                 <div className="video-alert-banner"><AlertTriangle size={24} /> RISK DETECTED</div>
               )}
             </div>
           </div>
         </div>
 
         <div className="transcript-section">
-          <div className="section-title">
-            <MessageSquare size={16} /> Live Transcript
-          </div>
+          <div className="section-title"><MessageSquare size={16} /> Live Transcript</div>
           <div className="chat-feed">
              {history.map((msg, i) => (
                <div key={i} className={`msg-row ${msg.sentiment}`}>
@@ -225,7 +297,6 @@ function App() {
         </div>
       </main>
 
-      {/* --- REPORT MODAL --- */}
       {showReport && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -233,7 +304,6 @@ function App() {
               <h2>Session Analysis Report</h2>
               <button className="close-btn" onClick={() => setShowReport(false)}><X size={20}/></button>
             </div>
-            
             <div className="modal-tabs">
               <button className={`tab-btn ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
                 <Activity size={16} /> AI Summary
@@ -245,30 +315,23 @@ function App() {
                 <Download size={16} /> Download CSV
               </button>
             </div>
-
             <div className="modal-body">
               {activeTab === 'report' ? (
-                <div className="report-text">
-                  <pre>{reportData?.report_content}</pre>
-                </div>
+                <div className="report-text"><pre>{reportData?.report_content}</pre></div>
               ) : (
-                <div className="transcript-text">
-                  <pre>{reportData?.transcript_tagged}</pre>
-                </div>
+                <div className="transcript-text"><pre>{reportData?.transcript_tagged}</pre></div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* --- LOADING OVERLAY --- */}
       {isLoading && (
         <div className="loading-overlay">
           <div className="spinner"></div>
           <p>Generating Behavioral Report...</p>
         </div>
       )}
-
     </div>
   );
 }

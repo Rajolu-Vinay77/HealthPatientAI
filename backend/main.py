@@ -678,7 +678,7 @@ async def stop_session(api_key: str = Depends(require_api_key)):
 
     return JSONResponse(content=report_data)
 
-# --- VIDEO LOGIC (FIXED BLINK PRIORITY) ---
+# --- VIDEO LOGIC (SMOOTHED BLINK) ---
 def generate_frames():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened(): 
@@ -689,11 +689,20 @@ def generate_frames():
     mp_face_mesh = mp.solutions.face_mesh
     
     with mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5) as face_mesh:
+        # Gaze history (for looking away)
         gaze_history = deque(maxlen=GAZE_SMOOTHING)
+        
+        # --- NEW: Blink History (Stabilizer) ---
+        # Stores last 3 frames of Eye Aspect Ratio to prevent flickering
+        ear_history = deque(maxlen=3)
+        
         calib_offset = (0.0, 0.0)
         calib_buffer = []
         calibrated = False
         read_failures = 0
+
+        # UPDATED THRESHOLD: Slightly higher makes "Closed" easier to trigger
+        SMOOTH_EAR_THRESHOLD = 0.21 
 
         try:
             while True:
@@ -715,25 +724,26 @@ def generate_frames():
                         state_manager.set_frame_for_analysis(frame)
                         lm = results.multi_face_landmarks[0].landmark
                         
-                        # 1. Define Indices
                         eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
                         iris_idxs = [list(range(468, 473)), list(range(473, 478))]
                         
-                        # 2. CALCULATE BLINK FIRST (EAR)
-                        # We calculate this BEFORE looking for the iris
-                        ear = (get_ear(lm, eye_idxs[0], w, h) + get_ear(lm, eye_idxs[1], w, h)) / 2
+                        # 1. Calculate Raw EAR
+                        left_ear = get_ear(lm, eye_idxs[0], w, h)
+                        right_ear = get_ear(lm, eye_idxs[1], w, h)
+                        current_ear = (left_ear + right_ear) / 2.0
                         
-                        # 3. LOGIC BRANCHING
-                        if ear < EAR_THRESHOLD:
-                            # CASE A: EYES CLOSED
+                        # 2. Smooth it (Average of last 3 frames)
+                        ear_history.append(current_ear)
+                        avg_ear = sum(ear_history) / len(ear_history)
+                        
+                        # 3. Check Blink based on Average
+                        if avg_ear < SMOOTH_EAR_THRESHOLD:
+                            # EYES CLOSED
                             status_text = "Eyes Closed"
                             state_manager.update("blink_state", "Closed")
                             state_manager.update("gaze_status", status_text)
-                            
-                            # Draw Red Text on Eyes to indicate closed
-                            # (Optional visual feedback)
                         else:
-                            # CASE B: EYES OPEN -> NOW CALCULATE GAZE
+                            # EYES OPEN -> Calculate Gaze
                             state_manager.update("blink_state", "Open")
                             
                             lx, ly, l_iris_center = eye_iris_center(lm, eye_idxs[0], iris_idxs[0], w, h)

@@ -1,0 +1,118 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,BlinkRate,Latency,Notes
+0.11,Patient,—,sad,N/A,Neutral,0.93,4.0,31.52,None
+1.12,Patient,—,sad,N/A,Neutral,0.95,4.0,31.52,None
+2.12,Patient,—,fear,N/A,Neutral,0.69,4.0,1.49,None
+3.12,Patient,—,happy,N/A,Positive,0.72,4.0,1.49,None
+4.12,Patient,—,happy,N/A,Positive,0.9,1.0,1.49,None
+5.12,Patient,—,sad,N/A,Neutral,0.94,1.0,1.49,None
+6.12,Patient,—,fear,N/A,Neutral,0.91,29.6,1.49,None
+7.12,Patient,—,happy,N/A,Positive,0.92,51.7,6.49,None
+8.12,Patient,—,happy,N/A,Positive,0.97,64.1,6.49,None
+9.12,Patient,—,fear,N/A,Neutral,0.87,63.9,6.49,None
+10.12,Patient,—,fear,N/A,Neutral,0.78,63.9,6.49,None
+11.12,Patient,—,sad,N/A,Neutral,0.84,63.9,6.49,None
+12.12,Patient,—,happy,N/A,Positive,0.91,51.7,11.74,None
+13.12,Patient,—,fear,N/A,Neutral,0.88,51.3,11.74,None
+14.12,Patient,—,fear,N/A,Neutral,0.97,55.4,11.74,None
+15.12,Patient,—,happy,N/A,Positive,0.89,55.4,11.74,None
+16.12,Patient,—,fear,N/A,Neutral,0.9,55.4,11.74,None
+17.12,Patient,—,fear,N/A,Neutral,0.82,51.9,16.74,None
+18.12,Patient,—,fear,N/A,Neutral,0.93,51.9,16.74,None
+19.12,Patient,—,fear,N/A,Disengaged/Avoidant,0.82,51.9,16.74,None
+20.12,Patient,—,sad,N/A,Neutral,0.79,44.8,16.74,None
+21.12,Patient,—,sad,N/A,Neutral,0.82,44.8,16.74,None
+22.12,Patient,—,sad,N/A,Disengaged/Avoidant,0.86,44.7,21.74,None
+23.12,Patient,—,sad,N/A,Disengaged/Avoidant,0.76,45.9,21.74,None
+24.12,Patient,—,happy,N/A,Positive,0.82,45.3,21.74,None
+25.12,Patient,—,happy,N/A,Positive,0.64,45.3,21.74,None
+26.12,Patient,—,sad,N/A,Disengaged/Avoidant,0.67,45.3,21.74,None
+27.12,Patient,—,happy,N/A,Positive,0.64,45.3,26.74,None
+28.12,Patient,—,sad,N/A,Disengaged/Avoidant,0.74,41.4,26.74,None
+29.12,Patient,—,neutral,N/A,Neutral,0.72,41.9,26.74,None
+30.13,Patient,—,happy,N/A,Positive,0.92,41.9,26.74,None
+31.13,Patient,—,happy,N/A,Positive,0.95,41.9,26.74,None
+32.13,Patient,—,happy,N/A,Positive,0.79,41.9,31.74,None
+33.13,Patient,—,neutral,N/A,Disengaged/Avoidant,0.67,41.9,31.74,None
+34.13,Patient,—,neutral,N/A,Disengaged/Avoidant,0.64,41.9,31.74,None
+35.13,Patient,—,sad,N/A,Neutral,0.85,36.2,31.74,None
+36.13,Patient,—,happy,N/A,Positive,0.79,36.2,31.74,None
+37.13,Patient,—,neutral,N/A,Neutral,0.89,36.3,31.74,None
+38.13,Patient,—,happy,N/A,Positive,0.92,36.3,31.74,None
+39.13,Patient,—,neutral,N/A,Neutral,0.93,35.7,31.74,None
+40.13,Patient,—,neutral,N/A,Disengaged/Avoidant,0.96,36.3,31.74,None
+41.13,Patient,—,neutral,N/A,Disengaged/Avoidant,0.89,36.3,31.74,None
+42.13,Patient,consumer reports so there is a department can get multiple auto service,neutral,N/A,Neutral,0.91,36.3,41.24,None
+43.13,Patient,—,neutral,N/A,Neutral,0.74,34.9,41.24,None
+44.13,Patient,—,neutral,N/A,Neutral,0.72,35.7,41.24,None
+45.13,Patient,—,No Face,N/A,Neutral,0.9,35.7,41.24,None
+46.13,Patient,—,No Face,N/A,Neutral,0.97,35.4,41.24,None
+47.13,Patient,—,sad,N/A,Neutral,0.88,38.2,41.24,None
+48.13,Patient,—,sad,N/A,Neutral,0.97,38.9,41.24,None
+49.13,Patient,—,sad,N/A,Neutral,0.98,39.7,41.24,None
+50.13,Patient,—,fear,N/A,Neutral,0.94,40.0,41.24,None
+51.13,Patient,—,neutral,N/A,Neutral,0.97,40.0,41.24,None
+52.13,Patient,—,neutral,N/A,Neutral,0.99,39.3,41.24,None
+53.13,Patient,—,fear,N/A,Neutral,0.92,40.1,41.24,None
+54.13,Patient,—,fear,N/A,Neutral,0.96,40.1,41.24,None
+55.13,Patient,—,sad,N/A,Neutral,0.74,40.1,41.24,None
+56.14,Patient,—,fear,N/A,Neutral,0.9,39.0,41.24,None
+57.14,Patient,—,fear,N/A,Neutral,0.97,39.0,41.24,None
+58.14,Patient,—,fear,N/A,Neutral,0.95,39.0,41.24,None
+59.14,Patient,—,fear,Sad,Stressed/Escalated,0.94,39.0,41.24,Depression
+60.14,Patient,—,fear,Sad,Stressed/Escalated,0.97,39.0,41.24,Depression
+61.14,Patient,—,fear,Sad,Stressed/Escalated,0.99,39.0,41.24,Depression
+62.14,Patient,—,surprise,Sad,Stressed/Escalated,0.89,39.0,41.24,Depression
+63.14,Patient,—,fear,Sad,Neutral,0.73,39.0,21.73,None
+64.14,Patient,—,sad,Sad,Neutral,0.77,39.0,21.73,None
+65.14,Patient,—,sad,Sad,Neutral,0.77,39.0,21.73,None
+66.14,Patient,—,fear,Sad,Neutral,0.71,39.0,21.73,None
+67.14,Patient,—,fear,Sad,Neutral,0.84,34.0,21.73,None
+68.14,Patient,—,fear,Sad,Neutral,0.86,34.0,26.73,None
+69.14,Patient,—,fear,Sad,Neutral,0.74,34.0,26.73,None
+70.14,Patient,—,fear,Sad,Neutral,0.92,29.0,26.73,None
+71.14,Patient,—,fear,Sad,Neutral,0.97,30.0,26.73,None
+72.14,Patient,—,fear,Sad,Neutral,0.99,30.0,26.73,None
+73.14,Patient,—,fear,Sad,Neutral,0.99,30.0,26.73,None
+74.14,Patient,that they're as good and where the problem,neutral,Sad,Neutral,0.84,30.0,31.99,None
+75.14,Patient,—,sad,Sad,Neutral,0.72,27.0,31.99,None
+76.14,Patient,—,neutral,Sad,Neutral,0.88,27.0,31.99,None
+77.14,Patient,—,sad,Sad,Neutral,0.96,27.0,31.99,None
+78.14,Patient,—,neutral,Sad,Neutral,0.86,27.0,31.99,None
+79.14,Patient,—,sad,Sad,Neutral,0.89,27.0,31.99,None
+80.14,Patient,—,neutral,Sad,Stressed/Escalated,0.94,27.0,31.99,"Depression, supported by the significantly high latency (31.99s > 2s), which indicates profound hesitation and depressive features. The fragmented and problem-focused nature of the statement ('where the problem') also aligns with rumination and potential difficulty with coherent thought often observed in depression."
+81.14,Patient,—,sad,Sad,Stressed/Escalated,0.95,27.0,31.99,"Depression, supported by the significantly high latency (31.99s > 2s), which indicates profound hesitation and depressive features. The fragmented and problem-focused nature of the statement ('where the problem') also aligns with rumination and potential difficulty with coherent thought often observed in depression."
+82.15,Patient,—,sad,Sad,Stressed/Escalated,0.98,27.0,31.99,"Depression, supported by the significantly high latency (31.99s > 2s), which indicates profound hesitation and depressive features. The fragmented and problem-focused nature of the statement ('where the problem') also aligns with rumination and potential difficulty with coherent thought often observed in depression."
+83.15,Patient,so we have extra damage or due to,sad,Sad,Stressed/Escalated,0.99,27.0,9.3,"Depression, supported by the significantly high latency (31.99s > 2s), which indicates profound hesitation and depressive features. The fragmented and problem-focused nature of the statement ('where the problem') also aligns with rumination and potential difficulty with coherent thought often observed in depression."
+84.15,Patient,—,sad,Sad,Neutral,0.97,27.0,9.3,None
+85.15,Patient,—,sad,Sad,Neutral,0.94,27.0,9.3,None
+86.15,Patient,—,sad,Sad,Disengaged/Avoidant,0.9,27.0,9.3,None
+87.15,Patient,—,neutral,Sad,Disengaged/Avoidant,0.79,27.0,9.3,None
+88.15,Patient,—,neutral,Sad,Stressed/Escalated,0.86,27.0,9.3,"Depression/Anxiety. The prolonged blink latency of 9.3 seconds significantly exceeds the normal threshold (Latency > 2s indicates hesitation/depression), strongly supporting a clinical flag of depression or anxiety. The fragmented and incomplete patient statement ('so we have extra damage or due to') further suggests difficulty with cognitive processing or verbal articulation, often associated with depressive or anxious states."
+89.15,Patient,—,neutral,Sad,Stressed/Escalated,0.84,27.0,9.3,"Depression/Anxiety. The prolonged blink latency of 9.3 seconds significantly exceeds the normal threshold (Latency > 2s indicates hesitation/depression), strongly supporting a clinical flag of depression or anxiety. The fragmented and incomplete patient statement ('so we have extra damage or due to') further suggests difficulty with cognitive processing or verbal articulation, often associated with depressive or anxious states."
+90.15,Patient,—,happy,Sad,Stressed/Escalated,0.93,21.0,9.3,"Depression/Anxiety. The prolonged blink latency of 9.3 seconds significantly exceeds the normal threshold (Latency > 2s indicates hesitation/depression), strongly supporting a clinical flag of depression or anxiety. The fragmented and incomplete patient statement ('so we have extra damage or due to') further suggests difficulty with cognitive processing or verbal articulation, often associated with depressive or anxious states."
+91.15,Patient,—,sad,Sad,Stressed/Escalated,0.89,23.0,9.3,"Depression/Anxiety. The prolonged blink latency of 9.3 seconds significantly exceeds the normal threshold (Latency > 2s indicates hesitation/depression), strongly supporting a clinical flag of depression or anxiety. The fragmented and incomplete patient statement ('so we have extra damage or due to') further suggests difficulty with cognitive processing or verbal articulation, often associated with depressive or anxious states."
+92.15,Patient,—,sad,Sad,Neutral,0.93,23.0,9.3,None
+93.15,Patient,—,neutral,Sad,Neutral,0.79,23.0,9.3,None
+94.15,Patient,training remained empty stomach and a pickle,sad,Sad,Disengaged/Avoidant,0.79,23.0,11.3,None
+95.15,Patient,—,happy,Sad,Positive,0.92,23.0,11.3,None
+96.15,Patient,—,happy,Sad,Positive,0.76,23.0,11.3,None
+97.15,Patient,—,happy,Sad,Positive,0.72,23.0,11.3,None
+98.15,Patient,—,happy,Sad,Positive,0.86,22.0,11.3,None
+99.15,Patient,—,sad,Sad,Neutral,0.79,22.0,11.3,None
+100.15,Patient,—,neutral,Sad,Neutral,0.89,22.0,11.3,None
+101.15,Patient,—,sad,Sad,Neutral,0.88,21.0,11.3,None
+102.15,Patient,—,neutral,Sad,Neutral,0.94,21.0,11.3,None
+103.15,Patient,—,sad,Sad,Neutral,0.97,21.0,11.3,None
+104.15,Patient,—,sad,Sad,Stressed/Escalated,0.96,21.0,11.3,Depression
+105.15,Patient,—,sad,Sad,Stressed/Escalated,0.88,21.0,11.3,Depression
+106.15,Patient,is easily,sad,Sad,Stressed/Escalated,0.89,21.0,11.44,Depression
+107.15,Patient,—,sad,Sad,Stressed/Escalated,0.95,21.0,11.44,Depression
+108.15,Patient,—,sad,Sad,Disengaged/Avoidant,0.99,21.0,11.44,None
+109.15,Patient,—,sad,Sad,Disengaged/Avoidant,1.0,21.0,11.44,None
+110.15,Patient,—,sad,Sad,Neutral,1.0,14.0,11.44,None
+111.16,Patient,—,sad,Sad,Stressed/Escalated,0.81,14.0,11.44,"High latency (11.44s), significantly above 2s, explicitly indicates hesitation/depression, strongly supporting a depressive marker. The brevity and incompleteness of the statement 'is easily' can further align with difficulty in verbalizing thoughts, a symptom consistent with depression (e.g., psychomotor retardation or cognitive slowing)."
+112.16,Patient,—,fear,Sad,Stressed/Escalated,0.95,14.0,11.44,"High latency (11.44s), significantly above 2s, explicitly indicates hesitation/depression, strongly supporting a depressive marker. The brevity and incompleteness of the statement 'is easily' can further align with difficulty in verbalizing thoughts, a symptom consistent with depression (e.g., psychomotor retardation or cognitive slowing)."
+113.16,Patient,—,fear,Sad,Stressed/Escalated,0.98,14.0,11.44,"High latency (11.44s), significantly above 2s, explicitly indicates hesitation/depression, strongly supporting a depressive marker. The brevity and incompleteness of the statement 'is easily' can further align with difficulty in verbalizing thoughts, a symptom consistent with depression (e.g., psychomotor retardation or cognitive slowing)."
+114.16,Patient,or problem that it tells,fear,Sad,Stressed/Escalated,0.97,14.0,8.45,"High latency (11.44s), significantly above 2s, explicitly indicates hesitation/depression, strongly supporting a depressive marker. The brevity and incompleteness of the statement 'is easily' can further align with difficulty in verbalizing thoughts, a symptom consistent with depression (e.g., psychomotor retardation or cognitive slowing)."
+115.16,Patient,—,fear,Sad,Neutral,0.95,14.0,8.45,None
+116.16,Patient,—,fear,Sad,Neutral,0.71,14.0,8.45,None

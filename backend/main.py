@@ -66,7 +66,7 @@ gemini_model = None
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        model_name = 'gemini-2.5-flash'
+        model_name = 'models/gemini-2.5-flash'
         gemini_model = genai.GenerativeModel(model_name)
         print(f"[INFO] Gemini API initialized: {model_name}")
     except Exception as e:
@@ -94,11 +94,14 @@ class SharedState:
             "face_conf": 0.0,
             "gaze_status": "N/A",
             "blink_state": "Open",
+            "blink_rate": 0.0,        # BPM (Smoothed for UI)
+            "blink_total": 0,         # NEW: Raw Count (Lossless for CSV)
             "vocal_emotion": "N/A",
             "text": "",
             "sentiment": "Neutral",
             "clinical_flag": "None",
-            "alert_active": False
+            "alert_active": False,
+            "response_latency": 0.0
         }
         self.text_alert_expires = 0.0
         self.latest_frame = None 
@@ -110,6 +113,10 @@ class SharedState:
         self.history_log = deque(maxlen=MAX_HISTORY_ROWS) 
         self.full_transcript = [] 
         self.consent_metadata = {}
+
+        # --- BIOMETRIC TRACKERS ---
+        self.blink_timestamps = deque(maxlen=100) 
+        self.last_speech_end_time = time.time()   
 
     def update(self, key, value):
         with self.lock:
@@ -124,6 +131,49 @@ class SharedState:
                         "speaker": "Patient", 
                         "text": value
                     })
+    
+    # --- BIOMETRIC LOGIC ---
+    def reset_biometrics(self):
+        """Clears rate calculation but KEEPS total count."""
+        with self.lock:
+            self.blink_timestamps.clear()
+            self.data["blink_rate"] = 0.0
+
+    def register_blink(self):
+        """Called ONLY when a specific blink event occurs."""
+        with self.lock:
+            self.blink_timestamps.append(time.time())
+            self.data["blink_total"] += 1 # Increment raw count
+
+    def update_bpm_logic(self):
+        """Called EVERY FRAME to ensure the rate decays over time."""
+        with self.lock:
+            now = time.time()
+            
+            # 1. Prune blinks older than 60 seconds
+            cutoff = now - 60
+            while self.blink_timestamps and self.blink_timestamps[0] < cutoff:
+                self.blink_timestamps.popleft()
+            
+            # 2. Calculate Duration
+            if self.is_recording:
+                duration = now - self.session_start_time
+            else:
+                duration = 60.0 if len(self.blink_timestamps) > 0 else 1.0
+
+            count = len(self.blink_timestamps)
+
+            # 3. UI STABILIZATION
+            if duration < 5:
+                # HIDE NOISE: If session just started (<5s), show 0.0
+                self.data["blink_rate"] = 0.0
+            elif duration < 60:
+                # Extrapolate, but cap at 60 to prevent visual glitches
+                raw_bpm = count * (60 / duration)
+                self.data["blink_rate"] = round(min(raw_bpm, 60.0), 1)
+            else:
+                # Standard Window
+                self.data["blink_rate"] = float(count)
             
     def set_frame_for_analysis(self, frame):
         with self.lock:
@@ -162,14 +212,18 @@ class SharedState:
             elapsed = round(time.time() - self.session_start_time, 2)
             snapshot = self.data.copy()
             
-            # Robust Case-Insensitive Check
+            # Check if face is present
+            face_detected = snapshot["face_emotion"] != "No Face"
+
             face_emo = str(snapshot["face_emotion"]).lower()
-            
             behavior = "Neutral"
             if snapshot["alert_active"]: behavior = "Stressed/Escalated"
             elif face_emo == "happy": behavior = "Positive"
             elif snapshot["gaze_status"] == "Looking Away": behavior = "Disengaged/Avoidant"
             
+            # DATA INTEGRITY: Record None if face lost
+            blink_val = snapshot["blink_rate"] if face_detected else None
+
             log_entry = {
                 "Timestamp": elapsed,
                 "Speaker": "Patient", 
@@ -178,6 +232,9 @@ class SharedState:
                 "Tone": snapshot["vocal_emotion"],
                 "Behavior": behavior,
                 "Confidence": snapshot["face_conf"],
+                "BlinkRate": blink_val,
+                "BlinkCount": snapshot["blink_total"], 
+                "Latency": snapshot["response_latency"],
                 "Notes": snapshot["clinical_flag"]
             }
             
@@ -296,63 +353,54 @@ class TemporalSmoother:
                 self.current_label = majority_label
         return self.current_label, self.ema_prob
 
-# ---------------- CLINICAL LOGIC (IN-CONTEXT) ----------------
+# ---------------- ANALYSIS LOGIC ----------------
 
-# Load examples once at startup
 CLINICAL_EXAMPLES = []
 def load_clinical_examples(filepath="telepsych_finetuning.jsonl"):
-    """Reads the JSONL file to get 'real' DAIC-WOZ examples."""
     examples = []
-    if not os.path.exists(filepath):
-        print(f"[WARN] Training data '{filepath}' not found. Using default logic.")
-        return []
+    if not os.path.exists(filepath): return []
     try:
         with open(filepath, 'r') as f:
             for line in f:
                 data = json.loads(line)
-                # Extract text and label
                 user_text = data['messages'][0]['content'].replace('Analyze this patient statement: ', '').strip('"')
                 model_json = data['messages'][1]['content']
                 examples.append(f"Patient: \"{user_text}\"\nAnalysis: {model_json}")
-        print(f"[INFO] Loaded {len(examples)} clinical examples for In-Context Learning.")
         return examples
-    except Exception as e:
-        print(f"[ERROR] Failed to load training data: {e}")
-        return []
+    except Exception: return []
 
 CLINICAL_EXAMPLES = load_clinical_examples()
 
 def analyze_text_clinically(text):
     if not gemini_model or not text: return "N/A", "N/A"
-    
     safe_text = redact_pii(text)
     
-    # Dynamic Few-Shot Selection
+    # Inject Biometrics
+    snapshot = state_manager.get_snapshot()
+    biometrics = f"Blink Rate: {snapshot['blink_rate']} bpm, Latency: {snapshot['response_latency']}s"
+
+    # Few-Shot Logic
     examples_context = ""
     if CLINICAL_EXAMPLES:
-        # Pick 8 random examples to keep the prompt fresh
-        subset = random.sample(CLINICAL_EXAMPLES, k=min(8, len(CLINICAL_EXAMPLES)))
-        examples_context = "\n\n".join(subset)
-    
+        subset = random.sample(CLINICAL_EXAMPLES, k=min(5, len(CLINICAL_EXAMPLES)))
+        examples_context = "\n".join(subset)
+
     prompt = f"""
     You are an expert clinical psychiatrist AI.
     
-    ### TASK
-    Analyze the patient statement below for clinical markers of ODD, Depression, or Anxiety.
-    
-    ### CLINICAL DEFINITIONS
-    1. **ODD (Oppositional Defiant Disorder)**: Easily annoyed, externalizes blame ("it's their fault"), defiant.
-    2. **Adjustment Disorder**: Stressor response, "it's not the same", "I miss my...".
-    3. **Depression**: Hopelessness, "better off without me", isolation, sleep/energy issues.
-    
-    ### REFERENCE EXAMPLES (Learn from these patterns)
-    {examples_context}
-    
-    ### CURRENT PATIENT STATEMENT
+    ### BIOMETRIC DATA
+    {biometrics}
+    (Note: Latency > 2s indicates hesitation/depression. Blink Rate < 10 is low, > 30 is high.)
+
+    ### PATIENT STATEMENT
     "{safe_text}"
     
-    ### OUTPUT FORMAT
-    Strict JSON: {{"sentiment": "...", "clinical_flag": "..."}}
+    ### CLINICAL EXAMPLES (Style Guide)
+    {examples_context}
+    
+    ### TASK
+    Analyze for ODD, Depression, or Anxiety markers. Use biometrics to support your finding.
+    Output JSON: {{"sentiment": "...", "clinical_flag": "..."}}
     """
     try:
         gen_config = genai.GenerationConfig(response_mime_type="application/json")
@@ -372,15 +420,12 @@ def generate_local_annotations(transcript_text):
     for ln in lines:
         note = "neutral"
         if check_safety_keywords(ln): note = "Potential Risk Marker"
-        elif "um" in ln or "uh" in ln: note = "Hesitation"
         annotated_lines.append(f"{ln} (Noted: {note})")
-    report = f"### Overview (Local Fallback)\nSession processed using local heuristics.\nTranscript lines: {len(lines)}"
+    report = f"### Overview (Local Fallback)\nSession processed using local heuristics."
     return "\n".join(annotated_lines), report
 
 def call_gemini_with_retry(prompt, attempts=3):
     if not gemini_model: return None
-    
-    # We define the schema for the Final Report here
     final_report_schema = {
         "type": "OBJECT",
         "properties": {
@@ -389,20 +434,11 @@ def call_gemini_with_retry(prompt, attempts=3):
         },
         "required": ["transcript_tagged", "report_content"]
     }
-    
-    gen_config = genai.GenerationConfig(
-        response_mime_type="application/json", 
-        response_schema=final_report_schema,
-        max_output_tokens=2000
-    )
-    
+    gen_config = genai.GenerationConfig(response_mime_type="application/json", response_schema=final_report_schema, max_output_tokens=2000)
     for i in range(attempts):
         try:
             return gemini_model.generate_content(prompt, generation_config=gen_config)
-        except Exception as e:
-            wait = 2 ** i
-            print(f"[WARN] Gemini attempt {i+1} failed: {e} - Retrying in {wait}s...")
-            time.sleep(wait)
+        except Exception: time.sleep(2 ** i)
     raise RuntimeError("Gemini failed after max retries")
 
 # ---------------- THREADS ----------------
@@ -410,12 +446,9 @@ def call_gemini_with_retry(prompt, attempts=3):
 def audio_processing_thread():
     print("[THREAD] Audio Listener Started")
     if not VOSK_AVAILABLE or not os.path.exists("model"): return
-
     try:
         model = Model("model"); rec = KaldiRecognizer(model, 16000)
-    except Exception as e:
-        print(f"[ERROR] Audio Init Failed: {e}")
-        return
+    except: return
 
     p = pyaudio.PyAudio()
     stream = None
@@ -430,10 +463,16 @@ def audio_processing_thread():
                 audio_buffer.extend(data)
                 
                 if rec.AcceptWaveform(data):
+                    now = time.time()
+                    latency = round(now - state_manager.last_speech_end_time, 2)
+                    state_manager.update("response_latency", latency)
+                    
                     result = json.loads(rec.Result())
                     text = result.get('text', '')
                     if text:
-                        print(f"[FINAL] {text}")
+                        print(f"[FINAL] {text} (Latency: {latency}s)")
+                        state_manager.last_speech_end_time = time.time()
+
                         if check_safety_keywords(text):
                             state_manager.update("clinical_flag", "Keyword Alert")
                             state_manager.set_text_alert(4.0)
@@ -466,14 +505,9 @@ def emotion_analysis_thread():
     error_count = 0
     
     while not STOP_EVENT.is_set():
-        if error_count >= MAX_DEEPFACE_ERRORS:
-            time.sleep(5) 
-            continue
-
+        if error_count >= MAX_DEEPFACE_ERRORS: time.sleep(5); continue
         now = time.time()
-        if now - last_run < EMOTION_POLL_INTERVAL:
-            time.sleep(0.1)
-            continue
+        if now - last_run < EMOTION_POLL_INTERVAL: time.sleep(0.1); continue
 
         frame = state_manager.get_frame_for_analysis()
         if frame is not None:
@@ -481,28 +515,17 @@ def emotion_analysis_thread():
             try:
                 small_frame = cv2.resize(frame, (224, 224))
                 rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                
-                objs = DeepFace.analyze(
-                    rgb_frame, 
-                    actions=['emotion'], 
-                    enforce_detection=False, 
-                    detector_backend='skip', 
-                    silent=True
-                )
-                
+                objs = DeepFace.analyze(rgb_frame, actions=['emotion'], enforce_detection=False, detector_backend='skip', silent=True)
                 if objs:
                     res = objs[0] if isinstance(objs, list) else objs
                     raw_emo = res['dominant_emotion']
                     raw_conf = res['emotion'][raw_emo] / 100.0
-                    
                     final_emo, final_conf = emotion_smoother.update(raw_emo, raw_conf)
                     state_manager.update("face_emotion", final_emo)
                     state_manager.update("face_conf", round(final_conf, 2))
                     error_count = 0 
             except Exception as e:
                 error_count += 1
-                if error_count >= MAX_DEEPFACE_ERRORS:
-                    print(f"[WARN] DeepFace disabled due to repeated errors: {e}")
         else:
             time.sleep(0.1)
 
@@ -511,19 +534,16 @@ def recording_thread():
     while not STOP_EVENT.is_set():
         start_ts = time.time()
         state_manager.record_snapshot()
-        process_time = time.time() - start_ts
-        sleep_time = max(0.0, 1.0 - process_time)
-        time.sleep(sleep_time)
+        time.sleep(max(0.0, 1.0 - (time.time() - start_ts)))
 
 @app.on_event("startup")
 async def startup_event():
-    print(f"[INFO] System Startup. VOSK={VOSK_AVAILABLE}, GEMINI={'Enabled' if gemini_model else 'Disabled'}")
+    print(f"[INFO] Startup. VOSK={VOSK_AVAILABLE}, GEMINI={'Enabled' if gemini_model else 'Disabled'}")
     try:
         files = sorted([os.path.join(RECORD_DIR, f) for f in os.listdir(RECORD_DIR)], key=os.path.getmtime)
         if len(files) > 50:
             for f in files[:-50]: os.remove(f)
     except Exception: pass
-
     threading.Thread(target=audio_processing_thread, daemon=True).start()
     threading.Thread(target=emotion_analysis_thread, daemon=True).start()
     threading.Thread(target=recording_thread, daemon=True).start()
@@ -548,9 +568,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def safe_frame_generator(gen):
     try:
         for frame in gen: yield frame
-    except Exception as e:
-        print(f"[ERROR] Video Feed Error: {e}")
-        return
+    except Exception as e: print(f"[ERROR] Video Feed Error: {e}"); return
 
 @app.get("/video_feed")
 def video_feed():
@@ -562,56 +580,17 @@ def video_feed():
 def health_check():
     return {"status": "ok", "recording": state_manager.is_recording, "gemini": bool(gemini_model)}
 
-@app.get("/session_status")
-def session_status():
-    with state_manager.lock:
-        elapsed = 0
-        if state_manager.is_recording:
-            elapsed = round(time.time() - state_manager.session_start_time, 2)
-        return {
-            "is_recording": state_manager.is_recording,
-            "elapsed_seconds": elapsed,
-            "records_count": len(state_manager.history_log)
-        }
-
-@app.post("/record_consent")
-async def record_consent(user_id: str = "anonymous", agreed: bool = True):
-    state_manager.consent_metadata = {
-        "user_id": user_id,
-        "consented": agreed,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    return {"status": "Consent Recorded", "user": user_id}
-
 @app.post("/start_session")
 async def start_session(api_key: str = Depends(require_api_key)):
-    if not state_manager.consent_metadata.get("consented"):
-        print("[WARN] Starting session without explicit consent log.")
     with state_manager.lock:
         state_manager.is_recording = True
         state_manager.session_start_time = time.time()
         state_manager.history_log.clear()
         state_manager.full_transcript.clear()
+        state_manager.blink_timestamps.clear()
+        state_manager.data["blink_total"] = 0 # Reset Total
+        state_manager.last_speech_end_time = time.time()
     return JSONResponse({"status": "Session Started", "recording": True})
-
-@app.post("/clear_session")
-async def clear_session(api_key: str = Depends(require_api_key)):
-    with state_manager.lock:
-        state_manager.history_log.clear()
-        state_manager.full_transcript.clear()
-        state_manager.is_recording = False
-    return JSONResponse({"status": "Session Cleared", "recording": False})
-
-@app.get("/download_csv")
-def download_csv(api_key: str = Depends(require_api_key)):
-    with state_manager.lock:
-        rows = list(state_manager.history_log)
-    csv_output = io.StringIO()
-    fieldnames = ["Timestamp","Speaker","Text","Emotion","Tone","Behavior","Confidence","Notes"]
-    writer = csv.DictWriter(csv_output, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(rows)
-    return Response(content=csv_output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=session_log.csv"})
 
 @app.post("/stop_session")
 async def stop_session(api_key: str = Depends(require_api_key)):
@@ -622,8 +601,23 @@ async def stop_session(api_key: str = Depends(require_api_key)):
         transcript_data = list(state_manager.full_transcript)
         sensor_summary = state_manager.data.copy()
 
+    # --- 1. CALCULATE TRUE SESSION AVERAGES (FIXED) ---
+    # Filter out None/0 values to get the REAL biometric average
+    valid_blinks = [r["BlinkRate"] for r in rows if r["BlinkRate"] is not None and r["BlinkRate"] > 0]
+    avg_blink = round(sum(valid_blinks) / len(valid_blinks), 1) if valid_blinks else "N/A"
+    total_blinks = sensor_summary['blink_total']
+    
+    valid_latency = [r["Latency"] for r in rows if r["Latency"] is not None and r["Latency"] > 0]
+    avg_latency = round(sum(valid_latency) / len(valid_latency), 1) if valid_latency else "N/A"
+
+    # Smart Emotion Aggregation (Ignore "No Face" and "Neutral" for dominance if possible)
+    emotions = [r["Emotion"] for r in rows if r["Emotion"] not in ["No Face", "Neutral"]]
+    if not emotions: emotions = [r["Emotion"] for r in rows if r["Emotion"] != "No Face"]
+    dominant_emotion = Counter(emotions).most_common(1)[0][0] if emotions else "Neutral"
+
+    # 2. Generate CSV
     csv_output = io.StringIO()
-    fieldnames = ["Timestamp", "Speaker", "Text", "Emotion", "Tone", "Behavior", "Confidence", "Notes"]
+    fieldnames = ["Timestamp", "Speaker", "Text", "Emotion", "Tone", "Behavior", "Confidence", "BlinkRate", "BlinkCount", "Latency", "Notes"]
     dict_writer = csv.DictWriter(csv_output, fieldnames=fieldnames)
     dict_writer.writeheader()
     dict_writer.writerows(rows)
@@ -632,11 +626,8 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{RECORD_DIR}/session_{timestamp}.csv"
     try:
-        with open(filename, "w", newline='', encoding='utf-8') as f:
-            f.write(csv_string)
-        print(f"[INFO] Saved session record to {filename}")
-    except Exception as e:
-        print(f"[ERROR] Failed to save CSV to disk: {e}")
+        with open(filename, "w", newline='', encoding='utf-8') as f: f.write(csv_string)
+    except Exception: pass
 
     transcript_lines = [f"[{e['time']}s] Patient: {e['text']}" for e in transcript_data]
     full_text_log = "\n".join(transcript_lines) or "(No speech detected)"
@@ -644,20 +635,19 @@ async def stop_session(api_key: str = Depends(require_api_key)):
 
     prompt = f"""
     You are an advanced Behavioral Session Analyzer AI.
-    RAW TRANSCRIPT:
-    {safe_transcript}
+    RAW TRANSCRIPT: {safe_transcript}
     
-    BEHAVIORAL SUMMARY (Sensors):
-    - Emotion: {sensor_summary['face_emotion']}
-    - Clinical Flag: {sensor_summary['clinical_flag']}
+    BEHAVIORAL SUMMARY (Calculated):
+    - Dominant Emotion: {dominant_emotion}
+    - True Blink Rate: {avg_blink} bpm (Total: {total_blinks})
+    - Avg Response Latency: {avg_latency}s
     
     TASK: Generate two outputs.
     1. transcript_tagged: Rewrite transcript verbatim with behavioral notes.
-    2. report_content: Professional analysis sections.
+    2. report_content: Professional analysis sections. Use the provided Biometrics to support your claims.
     """
 
     report_data = {"transcript_tagged": "", "report_content": "", "csv": csv_string}
-    
     try:
         response = call_gemini_with_retry(prompt)
         if response:
@@ -666,43 +656,52 @@ async def stop_session(api_key: str = Depends(require_api_key)):
                 report_data["transcript_tagged"] = json_res.get("transcript_tagged", "")
                 report_data["report_content"] = json_res.get("report_content", "")
             except Exception:
-                report_data["report_content"] = response.text or "Error parsing AI response"
+                report_data["report_content"] = response.text
                 report_data["transcript_tagged"] = "Format Error"
     except Exception as e:
         report_data["report_content"] = f"AI Generation Failed: {e}"
     
-    if not report_data["report_content"] or "Error" in str(report_data["report_content"]):
+    if not report_data["report_content"]:
         annotated, local_report = generate_local_annotations(safe_transcript)
         report_data["transcript_tagged"] = annotated
         report_data["report_content"] = local_report
 
     return JSONResponse(content=report_data)
 
-# --- VIDEO LOGIC (SMOOTHED BLINK) ---
+@app.get("/download_csv")
+def download_csv(api_key: str = Depends(require_api_key)):
+    with state_manager.lock:
+        rows = list(state_manager.history_log)
+    csv_output = io.StringIO()
+    fieldnames = ["Timestamp", "Speaker", "Text", "Emotion", "Tone", "Behavior", "Confidence", "BlinkRate", "BlinkCount", "Latency", "Notes"]
+    dict_writer = csv.DictWriter(csv_output, fieldnames=fieldnames)
+    dict_writer.writeheader()
+    dict_writer.writerows(rows)
+    return Response(content=csv_output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=session_log.csv"})
+
+@app.post("/clear_session")
+async def clear_session(api_key: str = Depends(require_api_key)):
+    with state_manager.lock:
+        state_manager.history_log.clear()
+        state_manager.full_transcript.clear()
+        state_manager.is_recording = False
+    return JSONResponse({"status": "Session Cleared", "recording": False})
+
+# --- VIDEO LOGIC (ROBUST + DECAY) ---
 def generate_frames():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    if not cap.isOpened(): 
-        return None
-    
+    if not cap.isOpened(): return None
     for _ in range(5): cap.read()
     
     mp_face_mesh = mp.solutions.face_mesh
-    
     with mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5) as face_mesh:
-        # Gaze history (for looking away)
         gaze_history = deque(maxlen=GAZE_SMOOTHING)
-        
-        # --- NEW: Blink History (Stabilizer) ---
-        # Stores last 3 frames of Eye Aspect Ratio to prevent flickering
         ear_history = deque(maxlen=3)
-        
         calib_offset = (0.0, 0.0)
         calib_buffer = []
         calibrated = False
         read_failures = 0
-
-        # UPDATED THRESHOLD: Slightly higher makes "Closed" easier to trigger
-        SMOOTH_EAR_THRESHOLD = 0.21 
+        eyes_previously_open = True 
 
         try:
             while True:
@@ -713,84 +712,78 @@ def generate_frames():
                     continue
                 read_failures = 0 
                 
+                # --- NEW: ALWAYS UPDATE BPM DECAY ---
+                state_manager.update_bpm_logic()
+
                 try:
                     h, w = frame.shape[:2]
                     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     results = face_mesh.process(rgb)
-                    
                     status_text = "No Face"
                     
                     if results.multi_face_landmarks:
                         state_manager.set_frame_for_analysis(frame)
                         lm = results.multi_face_landmarks[0].landmark
-                        
                         eye_idxs = [(33, 133, 159, 145), (263, 362, 386, 374)]
                         iris_idxs = [list(range(468, 473)), list(range(473, 478))]
                         
-                        # 1. Calculate Raw EAR
+                        # 1. Blink Detection
                         left_ear = get_ear(lm, eye_idxs[0], w, h)
                         right_ear = get_ear(lm, eye_idxs[1], w, h)
                         current_ear = (left_ear + right_ear) / 2.0
-                        
-                        # 2. Smooth it (Average of last 3 frames)
                         ear_history.append(current_ear)
                         avg_ear = sum(ear_history) / len(ear_history)
                         
-                        # 3. Check Blink based on Average
-                        if avg_ear < SMOOTH_EAR_THRESHOLD:
-                            # EYES CLOSED
+                        SMOOTH_EAR_THRESHOLD = 0.21
+                        is_blink = avg_ear < SMOOTH_EAR_THRESHOLD
+
+                        # 2. Register Blink (Rising Edge)
+                        if is_blink and eyes_previously_open:
+                            state_manager.register_blink() 
+                        eyes_previously_open = not is_blink
+
+                        if is_blink:
                             status_text = "Eyes Closed"
                             state_manager.update("blink_state", "Closed")
                             state_manager.update("gaze_status", status_text)
                         else:
-                            # EYES OPEN -> Calculate Gaze
                             state_manager.update("blink_state", "Open")
-                            
                             lx, ly, l_iris_center = eye_iris_center(lm, eye_idxs[0], iris_idxs[0], w, h)
                             rx, ry, r_iris_center = eye_iris_center(lm, eye_idxs[1], iris_idxs[1], w, h)
-                            
                             if l_iris_center is not None and r_iris_center is not None:
                                 gx, gy = (lx+rx)/2, (ly+ry)/2
                                 gaze_history.append((gx, gy))
                                 avg_g = np.mean(gaze_history, axis=0)
-                                
                                 if not calibrated:
                                     calib_buffer.append(avg_g)
                                     if len(calib_buffer) > 30:
                                         arr = np.array(calib_buffer)
                                         calib_offset = (arr[:,0].mean(), arr[:,1].mean())
                                         calibrated = True
-                                
                                 final_gx = avg_g[0] - calib_offset[0]
                                 final_gy = avg_g[1] - calib_offset[1]
-                                
                                 yaw, pitch, _ = estimate_head_pose(lm, w, h)
-                                
                                 if abs(yaw) > HEAD_YAW_THRESHOLD: status_text = "Looking Away"
                                 elif abs(final_gx) < LOOK_THRESHOLD_X and abs(final_gy) < LOOK_THRESHOLD_Y: status_text = "Looking at Screen"
                                 else: status_text = "Looking Away"
-                                
                                 state_manager.update("gaze_status", status_text)
-
-                                # Draw Eyes
                                 cv2.circle(frame, (int(l_iris_center[0]), int(l_iris_center[1])), 2, (0, 0, 255), -1)
                                 cv2.circle(frame, (int(r_iris_center[0]), int(r_iris_center[1])), 2, (0, 0, 255), -1)
                             else:
                                 state_manager.update("gaze_status", "Obstructed")
-
                     else:
                         state_manager.update("gaze_status", "No Face")
                         state_manager.update("face_emotion", "No Face")
                         state_manager.update("face_conf", 0.0)
                         state_manager.update("blink_state", "N/A")
+                        state_manager.reset_biometrics() 
 
                 except Exception: pass
                 
-                # Overlay
                 snap = state_manager.get_snapshot()
                 cv2.rectangle(frame, (10, 10), (300, 90), (0, 0, 0), -1)
                 cv2.putText(frame, f"Gaze: {snap['gaze_status']}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, f"Face: {snap['face_emotion']}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.putText(frame, f"BPM: {snap.get('blink_rate', 0)}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
                 ret, buffer = cv2.imencode('.jpg', frame)
                 yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')

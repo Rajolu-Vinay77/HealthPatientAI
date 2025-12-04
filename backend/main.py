@@ -106,6 +106,12 @@ class SharedState:
         self.text_alert_expires = 0.0
         self.latest_frame = None 
         self.new_frame_available = False
+
+        self.patient_context = {
+            "age": 30,          # Default
+            "gender": "Unknown",
+            "culture": "General"
+        }
         
         # --- Session Recording Data ---
         self.is_recording = False
@@ -570,6 +576,61 @@ def safe_frame_generator(gen):
         for frame in gen: yield frame
     except Exception as e: print(f"[ERROR] Video Feed Error: {e}"); return
 
+def load_patient_baseline():
+    """
+    Scans the 'session_records' directory and calculates the average
+    BlinkRate and Latency from all previous session CSVs.
+    """
+    blink_rates = []
+    latencies = []
+    
+    if not os.path.exists(RECORD_DIR):
+        return {"avg_blink": None, "avg_latency": None}
+
+    # Iterate over all CSV files
+    for filename in os.listdir(RECORD_DIR):
+        if filename.endswith(".csv"):
+            filepath = os.path.join(RECORD_DIR, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    # Collect all valid rows from this file
+                    file_blinks = []
+                    file_lats = []
+                    for row in reader:
+                        # Parse BlinkRate
+                        try:
+                            b_rate = row.get("BlinkRate")
+                            if b_rate and b_rate != "None" and float(b_rate) > 0:
+                                file_blinks.append(float(b_rate))
+                        except: pass
+                        
+                        # Parse Latency
+                        try:
+                            lat = row.get("Latency")
+                            if lat and lat != "None" and float(lat) > 0:
+                                file_lats.append(float(lat))
+                        except: pass
+                    
+                    # Add this session's average to the history
+                    if file_blinks: 
+                        blink_rates.append(sum(file_blinks) / len(file_blinks))
+                    if file_lats:
+                        latencies.append(sum(file_lats) / len(file_lats))
+                        
+            except Exception as e:
+                print(f"[WARN] Could not read baseline from {filename}: {e}")
+
+    # Calculate Global Averages
+    baseline_blink = round(sum(blink_rates) / len(blink_rates), 1) if blink_rates else 18.0 # Default healthy
+    baseline_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.5   # Default healthy
+    
+    return {
+        "avg_blink": baseline_blink,
+        "avg_latency": baseline_latency,
+        "sessions_count": len(blink_rates)
+    }
+
 @app.get("/video_feed")
 def video_feed():
     gen = generate_frames()
@@ -580,17 +641,31 @@ def video_feed():
 def health_check():
     return {"status": "ok", "recording": state_manager.is_recording, "gemini": bool(gemini_model)}
 
+# Update Pydantic model or accept query params. Here using query params for simplicity.
 @app.post("/start_session")
-async def start_session(api_key: str = Depends(require_api_key)):
+async def start_session(
+    age: int = 30, 
+    gender: str = "Unknown", 
+    culture: str = "General", 
+    api_key: str = Depends(require_api_key)
+):
     with state_manager.lock:
+        # Store Context
+        state_manager.patient_context = {"age": age, "gender": gender, "culture": culture}
+        
+        # Reset State
         state_manager.is_recording = True
         state_manager.session_start_time = time.time()
         state_manager.history_log.clear()
         state_manager.full_transcript.clear()
         state_manager.blink_timestamps.clear()
-        state_manager.data["blink_total"] = 0 # Reset Total
+        state_manager.data["blink_total"] = 0
         state_manager.last_speech_end_time = time.time()
-    return JSONResponse({"status": "Session Started", "recording": True})
+        
+    return JSONResponse({
+        "status": "Session Started", 
+        "context": state_manager.patient_context
+    })
 
 @app.post("/stop_session")
 async def stop_session(api_key: str = Depends(require_api_key)):
@@ -599,20 +674,20 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     with state_manager.lock:
         rows = list(state_manager.history_log)
         transcript_data = list(state_manager.full_transcript)
-        sensor_summary = state_manager.data.copy()
 
-    # --- 1. CALCULATE TRUE SESSION AVERAGES (FIXED) ---
+    # 1. Calculate "Ground Truth" Statistics in Python (Not AI)
     # Filter out None/0 values to get the REAL biometric average
     valid_blinks = [r["BlinkRate"] for r in rows if r["BlinkRate"] is not None and r["BlinkRate"] > 0]
     avg_blink = round(sum(valid_blinks) / len(valid_blinks), 1) if valid_blinks else "N/A"
-    total_blinks = sensor_summary['blink_total']
     
     valid_latency = [r["Latency"] for r in rows if r["Latency"] is not None and r["Latency"] > 0]
     avg_latency = round(sum(valid_latency) / len(valid_latency), 1) if valid_latency else "N/A"
 
-    # Smart Emotion Aggregation (Ignore "No Face" and "Neutral" for dominance if possible)
-    emotions = [r["Emotion"] for r in rows if r["Emotion"] not in ["No Face", "Neutral"]]
-    if not emotions: emotions = [r["Emotion"] for r in rows if r["Emotion"] != "No Face"]
+    # Smart Emotion Calculation: Find the most frequent emotion that ISN'T "Neutral" or "No Face"
+    emotions = [r["Emotion"] for r in rows if r["Emotion"] not in ["No Face", "neutral", "Neutral"]]
+    if not emotions: 
+        emotions = [r["Emotion"] for r in rows if r["Emotion"] != "No Face"] # Fallback to include neutral
+    
     dominant_emotion = Counter(emotions).most_common(1)[0][0] if emotions else "Neutral"
 
     # 2. Generate CSV
@@ -623,31 +698,49 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     dict_writer.writerows(rows)
     csv_string = csv_output.getvalue()
 
+    # Save to Disk
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{RECORD_DIR}/session_{timestamp}.csv"
     try:
         with open(filename, "w", newline='', encoding='utf-8') as f: f.write(csv_string)
+        print(f"[INFO] Saved session record to {filename}")
     except Exception: pass
 
+    # Prepare Transcript
     transcript_lines = [f"[{e['time']}s] Patient: {e['text']}" for e in transcript_data]
     full_text_log = "\n".join(transcript_lines) or "(No speech detected)"
     safe_transcript = redact_pii(full_text_log)
 
+    # 3. THE "STRICT" PROMPT
+    # We clearly separate "GROUND TRUTH" from "ANALYSIS"
     prompt = f"""
-    You are an advanced Behavioral Session Analyzer AI.
-    RAW TRANSCRIPT: {safe_transcript}
+    You are an expert clinical psychiatrist AI.
     
-    BEHAVIORAL SUMMARY (Calculated):
+    ### GROUND TRUTH BIOMETRICS (Do Not Recalculate)
+    * These values have been calculated by sensors. You must use them as facts.
     - Dominant Emotion: {dominant_emotion}
-    - True Blink Rate: {avg_blink} bpm (Total: {total_blinks})
-    - Avg Response Latency: {avg_latency}s
+    - Average Blink Rate: {avg_blink} bpm
+    - Average Response Latency: {avg_latency}s
     
-    TASK: Generate two outputs.
-    1. transcript_tagged: Rewrite transcript verbatim with behavioral notes.
-    2. report_content: Professional analysis sections. Use the provided Biometrics to support your claims.
+    ### PATIENT TRANSCRIPT
+    {safe_transcript}
+    
+    ### TASK
+    Write a clinical session summary.
+    1. **Emotional Analysis:** State the Dominant Emotion exactly as listed above ({dominant_emotion}). Analyze what this suggests.
+    2. **Physiological Indicators:** Discuss the Blink Rate ({avg_blink}). Is it low (<10) or high (>30)?
+    3. **Interaction Dynamics:** Discuss the Latency ({avg_latency}). Is it delayed (>2s)?
+    4. **Clinical Impression:** Based *only* on the data above, does this match Anhedonia (Neutral/Sad), Agitation (Angry/Fear), or Anxiety (High Blink)?
+
+    ### OUTPUT FORMAT (Strict JSON)
+    {{
+      "transcript_tagged": "Verbatim transcript with (Noted: ...) tags",
+      "report_content": "Professional clinical summary text..."
+    }}
     """
 
     report_data = {"transcript_tagged": "", "report_content": "", "csv": csv_string}
+    
     try:
         response = call_gemini_with_retry(prompt)
         if response:
@@ -661,6 +754,7 @@ async def stop_session(api_key: str = Depends(require_api_key)):
     except Exception as e:
         report_data["report_content"] = f"AI Generation Failed: {e}"
     
+    # Fallback
     if not report_data["report_content"]:
         annotated, local_report = generate_local_annotations(safe_transcript)
         report_data["transcript_tagged"] = annotated

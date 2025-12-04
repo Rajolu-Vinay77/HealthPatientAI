@@ -1,0 +1,43 @@
+Timestamp,Speaker,Text,Emotion,Tone,Behavior,Confidence,BlinkRate,BlinkCount,Latency,Notes
+0.56,Patient,—,sad,N/A,Neutral,0.99,0.0,0,36.5,None
+1.56,Patient,—,sad,N/A,Neutral,1.0,0.0,2,0.85,None
+2.56,Patient,—,sad,N/A,Neutral,1.0,0.0,2,0.85,None
+3.56,Patient,—,sad,N/A,Neutral,1.0,0.0,2,0.85,None
+4.56,Patient,—,sad,N/A,Neutral,1.0,0.0,2,0.85,None
+5.56,Patient,—,sad,N/A,Neutral,1.0,32.4,3,0.85,None
+6.56,Patient,—,sad,N/A,Neutral,1.0,36.6,4,6.1,None
+7.56,Patient,—,sad,N/A,Disengaged/Avoidant,1.0,47.7,6,6.1,None
+8.56,Patient,—,sad,N/A,Neutral,1.0,49.1,7,6.1,None
+9.56,Patient,—,sad,N/A,Neutral,1.0,50.3,8,6.1,None
+10.56,Patient,—,sad,N/A,Neutral,1.0,51.2,9,6.1,None
+11.56,Patient,—,sad,N/A,Neutral,1.0,46.8,9,11.1,None
+12.56,Patient,—,sad,N/A,Neutral,1.0,52.6,11,11.1,None
+13.56,Patient,—,No Face,N/A,Neutral,0.0,,11,11.1,None
+14.56,Patient,—,sad,N/A,Neutral,0.82,4.1,12,11.1,None
+15.56,Patient,—,sad,N/A,Neutral,0.61,3.9,12,11.1,None
+16.56,Patient,—,sad,N/A,Neutral,0.85,3.6,12,16.1,None
+17.56,Patient,—,sad,N/A,Disengaged/Avoidant,0.95,3.4,12,16.1,None
+18.56,Patient,—,angry,N/A,Stressed/Escalated,0.96,3.2,12,16.1,None
+19.56,Patient,—,happy,N/A,Positive,0.9,6.1,13,16.1,None
+20.56,Patient,—,sad,N/A,Disengaged/Avoidant,0.97,5.8,13,16.1,None
+21.56,Patient,—,angry,N/A,Stressed/Escalated,0.99,5.6,13,21.1,None
+22.56,Patient,—,angry,N/A,Stressed/Escalated,0.99,5.3,13,21.1,None
+23.56,Patient,—,sad,N/A,Neutral,0.88,10.2,15,21.1,None
+24.56,Patient,—,sad,N/A,Neutral,0.97,12.2,16,21.1,None
+25.56,Patient,—,sad,N/A,Neutral,0.98,14.1,17,21.1,None
+26.57,Patient,—,sad,N/A,Neutral,0.99,13.6,17,26.1,None
+27.57,Patient,—,sad,N/A,Neutral,1.0,13.1,17,26.1,None
+28.57,Patient,—,sad,N/A,Neutral,1.0,12.6,17,26.1,None
+29.57,Patient,—,sad,N/A,Neutral,1.0,14.2,18,26.1,None
+30.57,Patient,—,sad,N/A,Neutral,1.0,15.7,19,26.1,None
+31.57,Patient,—,sad,N/A,Neutral,0.99,15.2,19,31.1,None
+32.57,Patient,—,sad,N/A,Neutral,1.0,18.4,21,31.1,None
+33.57,Patient,—,sad,N/A,Neutral,1.0,19.7,22,31.1,None
+34.57,Patient,—,sad,N/A,Neutral,1.0,20.8,23,31.1,None
+35.57,Patient,—,sad,N/A,Neutral,1.0,20.3,23,31.1,None
+36.57,Patient,—,sad,N/A,Neutral,0.93,21.3,24,36.35,None
+37.57,Patient,—,sad,N/A,Neutral,0.98,22.4,25,36.35,None
+38.57,Patient,—,No Face,N/A,Neutral,0.0,,25,36.35,None
+39.57,Patient,—,No Face,N/A,Neutral,0.0,,25,36.35,None
+40.57,Patient,—,sad,N/A,Neutral,0.99,1.5,26,36.35,None
+41.57,Patient,—,sad,N/A,Neutral,1.0,2.9,27,41.35,None
